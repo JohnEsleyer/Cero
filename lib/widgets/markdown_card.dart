@@ -37,7 +37,8 @@ class _MarkdownCardState extends State<MarkdownCard> {
   @override
   void didUpdateWidget(MarkdownCard oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.card.id != widget.card.id) {
+    if (oldWidget.card.id != widget.card.id ||
+        (!_isEditing && oldWidget.card.content != widget.card.content)) {
       _controller.text = widget.card.content;
     }
   }
@@ -62,7 +63,12 @@ class _MarkdownCardState extends State<MarkdownCard> {
     final start = selection.start.clamp(0, text.length);
     final end = selection.end.clamp(0, text.length);
     final selected = text.substring(start, end);
-    final newText = text.substring(0, start) + prefix + selected + suffix + text.substring(end);
+    final newText =
+        text.substring(0, start) +
+        prefix +
+        selected +
+        suffix +
+        text.substring(end);
     _controller.text = newText;
     final newPos = start + prefix.length + selected.length;
     _controller.selection = TextSelection.collapsed(offset: newPos);
@@ -95,7 +101,9 @@ class _MarkdownCardState extends State<MarkdownCard> {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: const BoxDecoration(
-        border: Border(bottom: BorderSide(color: Color(0xFF2E2E2E), width: 0.5)),
+        border: Border(
+          bottom: BorderSide(color: Color(0xFF2E2E2E), width: 0.5),
+        ),
       ),
       child: Row(
         children: [
@@ -104,13 +112,17 @@ class _MarkdownCardState extends State<MarkdownCard> {
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
               decoration: BoxDecoration(
-                color: _isEditing ? const Color(0xFF818CF8).withOpacity(0.15) : Colors.transparent,
+                color: _isEditing
+                    ? const Color(0xFF818CF8).withOpacity(0.15)
+                    : Colors.transparent,
                 borderRadius: BorderRadius.circular(4),
               ),
               child: Icon(
                 _isEditing ? Icons.visibility_outlined : Icons.edit_outlined,
                 size: 16,
-                color: _isEditing ? const Color(0xFF818CF8) : const Color(0xFF64748B),
+                color: _isEditing
+                    ? const Color(0xFF818CF8)
+                    : const Color(0xFF64748B),
               ),
             ),
           ),
@@ -119,8 +131,14 @@ class _MarkdownCardState extends State<MarkdownCard> {
             _toolbarBtn(Icons.format_bold, () => _insertMarkdown('**', '**')),
             _toolbarBtn(Icons.format_italic, () => _insertMarkdown('*', '*')),
             _toolbarBtn(Icons.title, () => _insertMarkdown('# ', '')),
-            _toolbarBtn(Icons.format_list_bulleted, () => _insertMarkdown('- ', '')),
-            _toolbarBtn(Icons.check_box_outlined, () => _insertMarkdown('- [ ] ', '')),
+            _toolbarBtn(
+              Icons.format_list_bulleted,
+              () => _insertMarkdown('- ', ''),
+            ),
+            _toolbarBtn(
+              Icons.check_box_outlined,
+              () => _insertMarkdown('- [ ] ', ''),
+            ),
             _toolbarBtn(Icons.code, () => _insertMarkdown('`', '`')),
           ],
           const Spacer(),
@@ -129,7 +147,11 @@ class _MarkdownCardState extends State<MarkdownCard> {
           if (widget.onMoveDown != null)
             _actionBtn(Icons.arrow_downward, widget.onMoveDown!),
           if (widget.onDelete != null)
-            _actionBtn(Icons.delete_outline, widget.onDelete!, color: const Color(0xFFF87171)),
+            _actionBtn(
+              Icons.delete_outline,
+              widget.onDelete!,
+              color: const Color(0xFFF87171),
+            ),
         ],
       ),
     );
@@ -186,7 +208,11 @@ class _MarkdownCardState extends State<MarkdownCard> {
         padding: EdgeInsets.all(12),
         child: Text(
           'Empty card...',
-          style: TextStyle(color: Color(0xFF4A4A4A), fontStyle: FontStyle.italic, fontSize: 13),
+          style: TextStyle(
+            color: Color(0xFF4A4A4A),
+            fontStyle: FontStyle.italic,
+            fontSize: 13,
+          ),
         ),
       );
     }
@@ -196,11 +222,34 @@ class _MarkdownCardState extends State<MarkdownCard> {
         data: content,
         selectable: true,
         styleSheet: MarkdownStyleSheet.fromTheme(Theme.of(context)).copyWith(
-          p: const TextStyle(fontSize: 14, height: 1.6, color: Color(0xFFCBD5E1)),
-          h1: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, height: 1.8, color: Colors.white),
-          h2: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, height: 1.8, color: Colors.white),
-          h3: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, height: 1.8, color: Colors.white),
-          code: const TextStyle(fontFamily: 'monospace', fontSize: 12, backgroundColor: Color(0xFF1A1A1A)),
+          p: const TextStyle(
+            fontSize: 14,
+            height: 1.6,
+            color: Color(0xFFCBD5E1),
+          ),
+          h1: const TextStyle(
+            fontSize: 18,
+            fontWeight: FontWeight.bold,
+            height: 1.8,
+            color: Colors.white,
+          ),
+          h2: const TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.bold,
+            height: 1.8,
+            color: Colors.white,
+          ),
+          h3: const TextStyle(
+            fontSize: 14,
+            fontWeight: FontWeight.bold,
+            height: 1.8,
+            color: Colors.white,
+          ),
+          code: const TextStyle(
+            fontFamily: 'monospace',
+            fontSize: 12,
+            backgroundColor: Color(0xFF1A1A1A),
+          ),
         ),
       ),
     );

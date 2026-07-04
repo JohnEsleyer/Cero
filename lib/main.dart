@@ -9,13 +9,13 @@ void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   final serverService = ServerService();
   await serverService.init();
-  
+
   runApp(MyApp(serverService: serverService));
 }
 
 class MyApp extends StatelessWidget {
   final ServerService serverService;
-  
+
   const MyApp({super.key, required this.serverService});
 
   @override
@@ -34,13 +34,8 @@ class MyApp extends StatelessWidget {
           surface: const Color(0xFF202020),
           background: const Color(0xFF191919),
         ),
-        cardTheme: const CardThemeData(
-          color: Color(0xFF202020),
-          elevation: 0,
-        ),
-        drawerTheme: const DrawerThemeData(
-          backgroundColor: Color(0xFF202020),
-        ),
+        cardTheme: const CardThemeData(color: Color(0xFF202020), elevation: 0),
+        drawerTheme: const DrawerThemeData(backgroundColor: Color(0xFF202020)),
       ),
       home: MainJournalScreen(serverService: serverService),
     );
@@ -49,7 +44,7 @@ class MyApp extends StatelessWidget {
 
 class MainJournalScreen extends StatefulWidget {
   final ServerService serverService;
-  
+
   const MainJournalScreen({super.key, required this.serverService});
 
   @override
@@ -58,7 +53,7 @@ class MainJournalScreen extends StatefulWidget {
 
 class _MainJournalScreenState extends State<MainJournalScreen> {
   late final ServerService _serverService;
-  
+
   DbPage? _selectedPage;
   final Set<String> _expandedPageIds = {};
   bool _showArchived = false;
@@ -68,12 +63,34 @@ class _MainJournalScreenState extends State<MainJournalScreen> {
   final FocusNode _titleFocusNode = FocusNode();
   List<models.Card> _pageCards = [];
   List<DbPage> _sidePages = [];
+  bool _isRefreshingPage = false;
   Timer? _saveDebounceTimer;
 
   final List<String> _curatedEmojis = [
-    '📓', '📝', '📅', '💭', '💡', '🏷️', '✈️', '🏃', '💻', '🏠', 
-    '🎨', '🎵', '📚', '✍️', '❤️', '🌟', '🍀', '☀️', '🌧️', '☕', 
-    '🧠', '🔋', '🏡', '🎯'
+    '📓',
+    '📝',
+    '📅',
+    '💭',
+    '💡',
+    '🏷️',
+    '✈️',
+    '🏃',
+    '💻',
+    '🏠',
+    '🎨',
+    '🎵',
+    '📚',
+    '✍️',
+    '❤️',
+    '🌟',
+    '🍀',
+    '☀️',
+    '🌧️',
+    '☕',
+    '🧠',
+    '🔋',
+    '🏡',
+    '🎯',
   ];
 
   @override
@@ -132,6 +149,45 @@ class _MainJournalScreenState extends State<MainJournalScreen> {
     }
   }
 
+  Future<void> _refreshSelectedPage() async {
+    final page = _selectedPage;
+    if (page == null || _isRefreshingPage) return;
+
+    _flushPendingSave();
+    setState(() => _isRefreshingPage = true);
+
+    try {
+      await _serverService.loadDatabaseState();
+      if (!mounted) return;
+
+      final refreshedPage = _serverService.pages
+          .where((candidate) => candidate.id == page.id)
+          .firstOrNull;
+
+      if (refreshedPage == null) {
+        setState(() {
+          _selectedPage = null;
+          _navigationHistory.clear();
+          _pageCards = [];
+          _sidePages = [];
+        });
+        return;
+      }
+
+      _selectedPage = refreshedPage;
+      if (!_titleFocusNode.hasFocus) {
+        _titleController.text = refreshedPage.title;
+      }
+      await _loadCardsForPage(refreshedPage.id);
+    } catch (e) {
+      debugPrint('Error refreshing page: $e');
+    } finally {
+      if (mounted) {
+        setState(() => _isRefreshingPage = false);
+      }
+    }
+  }
+
   void _checkPendingConnections() {
     final pendingList = _serverService.pendingConnections;
     if (pendingList.isEmpty) return;
@@ -158,14 +214,19 @@ class _MainJournalScreenState extends State<MainJournalScreen> {
               _serverService.rejectPendingClient(index);
               Navigator.pop(ctx);
             },
-            child: const Text('Deny', style: TextStyle(color: Colors.redAccent)),
+            child: const Text(
+              'Deny',
+              style: TextStyle(color: Colors.redAccent),
+            ),
           ),
           ElevatedButton(
             onPressed: () {
               _serverService.approvePendingClient(index);
               Navigator.pop(ctx);
             },
-            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF818CF8)),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF818CF8),
+            ),
             child: const Text('Allow'),
           ),
         ],
@@ -175,8 +236,12 @@ class _MainJournalScreenState extends State<MainJournalScreen> {
 
   void _selectPage(DbPage page, {bool pushToHistory = true}) {
     _flushPendingSave();
+    _titleFocusNode.unfocus();
+    FocusManager.instance.primaryFocus?.unfocus();
 
-    if (pushToHistory && _selectedPage != null && _selectedPage!.id != page.id) {
+    if (pushToHistory &&
+        _selectedPage != null &&
+        _selectedPage!.id != page.id) {
       _navigationHistory.add(_selectedPage!.id);
     }
     setState(() {
@@ -218,7 +283,7 @@ class _MainJournalScreenState extends State<MainJournalScreen> {
 
   void _saveCurrentPage() {
     if (_selectedPage == null) return;
-    
+
     _saveDebounceTimer?.cancel();
     _saveDebounceTimer = Timer(const Duration(milliseconds: 500), () {
       _flushPendingSave();
@@ -231,7 +296,10 @@ class _MainJournalScreenState extends State<MainJournalScreen> {
     _flushPendingSave();
   }
 
-  void _createSubpage(String? parentId, {String relationType = 'subpage'}) async {
+  void _createSubpage(
+    String? parentId, {
+    String relationType = 'subpage',
+  }) async {
     await _serverService.addPage(
       parentId: parentId,
       relationType: relationType,
@@ -280,7 +348,9 @@ class _MainJournalScreenState extends State<MainJournalScreen> {
               }
               await _serverService.deletePage(id);
             },
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.orangeAccent),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.orangeAccent,
+            ),
             child: const Text('Archive'),
           ),
         ],
@@ -305,19 +375,44 @@ class _MainJournalScreenState extends State<MainJournalScreen> {
             children: [
               ListTile(
                 dense: true,
-                leading: const Icon(Icons.folder_off_outlined, color: Colors.grey),
-                title: const Text('Root Level (No Parent)', style: TextStyle(fontSize: 13)),
+                leading: const Icon(
+                  Icons.folder_off_outlined,
+                  color: Colors.grey,
+                ),
+                title: const Text(
+                  'Root Level (No Parent)',
+                  style: TextStyle(fontSize: 13),
+                ),
                 onTap: () => Navigator.pop(ctx, ''),
               ),
               ...allPages
-                .where((p) => p.id != currentPage.id && p.relationType != 'sidepage')
-                .map((page) => ListTile(
-                  dense: true,
-                  leading: Text(page.emoji, style: const TextStyle(fontSize: 16)),
-                  title: Text(page.title.isEmpty ? 'Untitled' : page.title, style: const TextStyle(fontSize: 13)),
-                  subtitle: page.parentId != null ? const Text('subpage', style: TextStyle(fontSize: 10, color: Colors.grey)) : null,
-                  onTap: () => Navigator.pop(ctx, page.id),
-                )),
+                  .where(
+                    (p) =>
+                        p.id != currentPage.id && p.relationType != 'sidepage',
+                  )
+                  .map(
+                    (page) => ListTile(
+                      dense: true,
+                      leading: Text(
+                        page.emoji,
+                        style: const TextStyle(fontSize: 16),
+                      ),
+                      title: Text(
+                        page.title.isEmpty ? 'Untitled' : page.title,
+                        style: const TextStyle(fontSize: 13),
+                      ),
+                      subtitle: page.parentId != null
+                          ? const Text(
+                              'subpage',
+                              style: TextStyle(
+                                fontSize: 10,
+                                color: Colors.grey,
+                              ),
+                            )
+                          : null,
+                      onTap: () => Navigator.pop(ctx, page.id),
+                    ),
+                  ),
             ],
           ),
         ),
@@ -338,7 +433,7 @@ class _MainJournalScreenState extends State<MainJournalScreen> {
 
   void _showEmojiPicker() {
     if (_selectedPage == null) return;
-    
+
     showModalBottomSheet(
       context: context,
       backgroundColor: const Color(0xFF202020),
@@ -375,10 +470,7 @@ class _MainJournalScreenState extends State<MainJournalScreen> {
                     Navigator.pop(context);
                   },
                   child: Center(
-                    child: Text(
-                      emoji,
-                      style: const TextStyle(fontSize: 28),
-                    ),
+                    child: Text(emoji, style: const TextStyle(fontSize: 28)),
                   ),
                 );
               },
@@ -465,8 +557,13 @@ class _MainJournalScreenState extends State<MainJournalScreen> {
           children: [
             Expanded(
               child: Text(
-                _selectedPage!.title.isEmpty ? 'Untitled' : _selectedPage!.title,
-                style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
+                _selectedPage!.title.isEmpty
+                    ? 'Untitled'
+                    : _selectedPage!.title,
+                style: const TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.bold,
+                ),
                 overflow: TextOverflow.ellipsis,
               ),
             ),
@@ -482,15 +579,15 @@ class _MainJournalScreenState extends State<MainJournalScreen> {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
       decoration: BoxDecoration(
-        color: _serverService.isRunning 
-            ? Colors.green.withValues(alpha: 0.1) 
+        color: _serverService.isRunning
+            ? Colors.green.withValues(alpha: 0.1)
             : Colors.grey.withValues(alpha: 0.1),
         borderRadius: BorderRadius.circular(4),
       ),
       child: Text(
         _serverService.isRunning ? 'LINK ON' : 'LINK OFF',
         style: TextStyle(
-          fontSize: 8, 
+          fontSize: 8,
           fontWeight: FontWeight.bold,
           color: _serverService.isRunning ? Colors.green : Colors.grey,
         ),
@@ -501,7 +598,9 @@ class _MainJournalScreenState extends State<MainJournalScreen> {
   @override
   Widget build(BuildContext context) {
     final allPages = _serverService.pages;
-    final rootPages = allPages.where((p) => p.parentId == null && p.relationType != 'sidepage').toList();
+    final rootPages = allPages
+        .where((p) => p.parentId == null && p.relationType != 'sidepage')
+        .toList();
 
     return Scaffold(
       appBar: AppBar(
@@ -517,6 +616,17 @@ class _MainJournalScreenState extends State<MainJournalScreen> {
         elevation: 0,
         actions: [
           if (_selectedPage != null) ...[
+            IconButton(
+              icon: _isRefreshingPage
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.refresh),
+              tooltip: 'Refresh Page',
+              onPressed: _isRefreshingPage ? null : _refreshSelectedPage,
+            ),
             Builder(
               builder: (context) => IconButton(
                 icon: const Icon(Icons.view_sidebar_outlined),
@@ -580,7 +690,10 @@ class _MainJournalScreenState extends State<MainJournalScreen> {
                     children: [
                       Icon(Icons.archive, size: 18, color: Colors.orangeAccent),
                       SizedBox(width: 8),
-                      Text('Archive Page', style: TextStyle(color: Colors.orangeAccent)),
+                      Text(
+                        'Archive Page',
+                        style: TextStyle(color: Colors.orangeAccent),
+                      ),
                     ],
                   ),
                 ),
@@ -595,8 +708,8 @@ class _MainJournalScreenState extends State<MainJournalScreen> {
                   ),
                 ),
               ],
-            )
-          ]
+            ),
+          ],
         ],
       ),
       drawer: _buildDrawer(rootPages, allPages),
@@ -618,8 +731,12 @@ class _MainJournalScreenState extends State<MainJournalScreen> {
               child: ListView(
                 padding: const EdgeInsets.symmetric(vertical: 8),
                 children: _showArchived
-                    ? (_archivedPages.map((page) => _buildArchivedPageTile(page)).toList())
-                    : rootPages.map((page) => _buildPageTreeNode(page, allPages, 0)).toList(),
+                    ? (_archivedPages
+                          .map((page) => _buildArchivedPageTile(page))
+                          .toList())
+                    : rootPages
+                          .map((page) => _buildPageTreeNode(page, allPages, 0))
+                          .toList(),
               ),
             ),
             Padding(
@@ -632,7 +749,9 @@ class _MainJournalScreenState extends State<MainJournalScreen> {
                   backgroundColor: const Color(0xFF818CF8),
                   foregroundColor: Colors.white,
                   padding: const EdgeInsets.symmetric(vertical: 12),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8),
+                  ),
                 ),
               ),
             ),
@@ -652,13 +771,18 @@ class _MainJournalScreenState extends State<MainJournalScreen> {
                     });
                   }
                 },
-                icon: Icon(_showArchived ? Icons.list_alt : Icons.archive_outlined, size: 16),
+                icon: Icon(
+                  _showArchived ? Icons.list_alt : Icons.archive_outlined,
+                  size: 16,
+                ),
                 label: Text(_showArchived ? 'Show Active Pages' : 'View Trash'),
                 style: OutlinedButton.styleFrom(
                   foregroundColor: Colors.grey,
                   side: const BorderSide(color: Color(0xFF2C2C2C)),
                   padding: const EdgeInsets.symmetric(vertical: 10),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8),
+                  ),
                 ),
               ),
             ),
@@ -688,7 +812,12 @@ class _MainJournalScreenState extends State<MainJournalScreen> {
                 children: [
                   const Text(
                     'Context',
-                    style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF64748B), letterSpacing: 0.5),
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: Color(0xFF64748B),
+                      letterSpacing: 0.5,
+                    ),
                   ),
                   IconButton(
                     icon: const Icon(Icons.close, size: 18),
@@ -707,12 +836,19 @@ class _MainJournalScreenState extends State<MainJournalScreen> {
                         child: Text(
                           'No context pages yet.\n\nSide pages provide supplementary info about the current page.',
                           textAlign: TextAlign.center,
-                          style: TextStyle(color: Color(0xFF4A4A4A), fontSize: 12, height: 1.5),
+                          style: TextStyle(
+                            color: Color(0xFF4A4A4A),
+                            fontSize: 12,
+                            height: 1.5,
+                          ),
                         ),
                       ),
                     )
                   : ListView.builder(
-                      padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 8),
+                      padding: const EdgeInsets.symmetric(
+                        vertical: 6,
+                        horizontal: 8,
+                      ),
                       itemCount: _sidePages.length,
                       itemBuilder: (context, idx) {
                         final sp = _sidePages[idx];
@@ -725,14 +861,24 @@ class _MainJournalScreenState extends State<MainJournalScreen> {
                           ),
                           child: ListTile(
                             dense: true,
-                            leading: Text(sp.emoji, style: const TextStyle(fontSize: 16)),
+                            leading: Text(
+                              sp.emoji,
+                              style: const TextStyle(fontSize: 16),
+                            ),
                             title: Text(
                               sp.title.isEmpty ? 'Untitled' : sp.title,
-                              style: const TextStyle(fontWeight: FontWeight.w500, fontSize: 12),
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w500,
+                                fontSize: 12,
+                              ),
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                             ),
-                            trailing: const Icon(Icons.chevron_right, size: 16, color: Color(0xFF64748B)),
+                            trailing: const Icon(
+                              Icons.chevron_right,
+                              size: 16,
+                              color: Color(0xFF64748B),
+                            ),
                             onTap: () {
                               Navigator.pop(context);
                               _selectPage(sp);
@@ -750,12 +896,17 @@ class _MainJournalScreenState extends State<MainJournalScreen> {
                   _createSubpage(_selectedPage!.id, relationType: 'sidepage');
                 },
                 icon: const Icon(Icons.add, size: 16),
-                label: const Text('Add Context Page', style: TextStyle(fontSize: 12)),
+                label: const Text(
+                  'Add Context Page',
+                  style: TextStyle(fontSize: 12),
+                ),
                 style: OutlinedButton.styleFrom(
                   foregroundColor: const Color(0xFF818CF8),
                   side: const BorderSide(color: Color(0xFF3E3E3E)),
                   padding: const EdgeInsets.symmetric(vertical: 10),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(6),
+                  ),
                 ),
               ),
             ),
@@ -772,9 +923,7 @@ class _MainJournalScreenState extends State<MainJournalScreen> {
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: const BoxDecoration(
-        border: Border(
-          bottom: BorderSide(color: Color(0xFF2C2C2C)),
-        ),
+        border: Border(bottom: BorderSide(color: Color(0xFF2C2C2C))),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -822,10 +971,17 @@ class _MainJournalScreenState extends State<MainJournalScreen> {
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    const Text('Server IP:', style: TextStyle(fontSize: 11, color: Colors.grey)),
+                    const Text(
+                      'Server IP:',
+                      style: TextStyle(fontSize: 11, color: Colors.grey),
+                    ),
                     Text(
                       _serverService.localIp,
-                      style: const TextStyle(fontSize: 11, fontFamily: 'monospace', fontWeight: FontWeight.bold),
+                      style: const TextStyle(
+                        fontSize: 11,
+                        fontFamily: 'monospace',
+                        fontWeight: FontWeight.bold,
+                      ),
                     ),
                   ],
                 ),
@@ -833,18 +989,16 @@ class _MainJournalScreenState extends State<MainJournalScreen> {
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    const Text('Port:', style: TextStyle(fontSize: 11, color: Colors.grey)),
-                    Text('${_serverService.wsPort}', style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
-                  ],
-                ),
-                const SizedBox(height: 4),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    const Text('Auth PIN:', style: TextStyle(fontSize: 11, color: Colors.grey)),
+                    const Text(
+                      'Port:',
+                      style: TextStyle(fontSize: 11, color: Colors.grey),
+                    ),
                     Text(
-                      _serverService.authPin.isEmpty ? '—' : _serverService.authPin,
-                      style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF818CF8), letterSpacing: 2),
+                      '${_serverService.wsPort}',
+                      style: const TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.bold,
+                      ),
                     ),
                   ],
                 ),
@@ -852,8 +1006,39 @@ class _MainJournalScreenState extends State<MainJournalScreen> {
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    const Text('Connections:', style: TextStyle(fontSize: 11, color: Colors.grey)),
-                    Text('$clientsCount active', style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.green)),
+                    const Text(
+                      'Auth PIN:',
+                      style: TextStyle(fontSize: 11, color: Colors.grey),
+                    ),
+                    Text(
+                      _serverService.authPin.isEmpty
+                          ? '—'
+                          : _serverService.authPin,
+                      style: const TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.bold,
+                        color: Color(0xFF818CF8),
+                        letterSpacing: 2,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text(
+                      'Connections:',
+                      style: TextStyle(fontSize: 11, color: Colors.grey),
+                    ),
+                    Text(
+                      '$clientsCount active',
+                      style: const TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.green,
+                      ),
+                    ),
                   ],
                 ),
               ],
@@ -865,7 +1050,9 @@ class _MainJournalScreenState extends State<MainJournalScreen> {
   }
 
   Widget _buildPageTreeNode(DbPage page, List<DbPage> allPages, int depth) {
-    final children = allPages.where((p) => p.parentId == page.id && p.relationType != 'sidepage').toList();
+    final children = allPages
+        .where((p) => p.parentId == page.id && p.relationType != 'sidepage')
+        .toList();
     final hasChildren = children.isNotEmpty;
     final isExpanded = _expandedPageIds.contains(page.id);
     final isSelected = _selectedPage?.id == page.id;
@@ -878,8 +1065,8 @@ class _MainJournalScreenState extends State<MainJournalScreen> {
           child: Container(
             margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 1),
             decoration: BoxDecoration(
-              color: isSelected 
-                  ? const Color(0xFF818CF8).withValues(alpha: 0.1) 
+              color: isSelected
+                  ? const Color(0xFF818CF8).withValues(alpha: 0.1)
                   : Colors.transparent,
               borderRadius: BorderRadius.circular(6),
             ),
@@ -901,11 +1088,15 @@ class _MainJournalScreenState extends State<MainJournalScreen> {
                       });
                     },
                     child: Icon(
-                      hasChildren 
-                          ? (isExpanded ? Icons.keyboard_arrow_down : Icons.keyboard_arrow_right) 
+                      hasChildren
+                          ? (isExpanded
+                                ? Icons.keyboard_arrow_down
+                                : Icons.keyboard_arrow_right)
                           : Icons.description_outlined,
                       size: 16,
-                      color: isSelected ? const Color(0xFF818CF8) : const Color(0xFF64748B),
+                      color: isSelected
+                          ? const Color(0xFF818CF8)
+                          : const Color(0xFF64748B),
                     ),
                   ),
                   const SizedBox(width: 6),
@@ -917,7 +1108,9 @@ class _MainJournalScreenState extends State<MainJournalScreen> {
                 style: TextStyle(
                   fontSize: 13,
                   fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
-                  color: isSelected ? const Color(0xFF818CF8) : const Color(0xFFCBD5E1),
+                  color: isSelected
+                      ? const Color(0xFF818CF8)
+                      : const Color(0xFFCBD5E1),
                 ),
                 overflow: TextOverflow.ellipsis,
               ),
@@ -936,7 +1129,9 @@ class _MainJournalScreenState extends State<MainJournalScreen> {
           ),
         ),
         if (hasChildren && isExpanded)
-          ...children.map((child) => _buildPageTreeNode(child, allPages, depth + 1)),
+          ...children.map(
+            (child) => _buildPageTreeNode(child, allPages, depth + 1),
+          ),
       ],
     );
   }
@@ -963,7 +1158,11 @@ class _MainJournalScreenState extends State<MainJournalScreen> {
             mainAxisSize: MainAxisSize.min,
             children: [
               IconButton(
-                icon: const Icon(Icons.restore_outlined, size: 18, color: Colors.green),
+                icon: const Icon(
+                  Icons.restore_outlined,
+                  size: 18,
+                  color: Colors.green,
+                ),
                 tooltip: 'Restore',
                 onPressed: () async {
                   await _serverService.restorePage(page.id);
@@ -974,7 +1173,11 @@ class _MainJournalScreenState extends State<MainJournalScreen> {
                 },
               ),
               IconButton(
-                icon: const Icon(Icons.delete_forever_outlined, size: 18, color: Colors.redAccent),
+                icon: const Icon(
+                  Icons.delete_forever_outlined,
+                  size: 18,
+                  color: Colors.redAccent,
+                ),
                 tooltip: 'Delete permanently',
                 onPressed: () async {
                   final confirmed = await showDialog<bool>(
@@ -984,10 +1187,15 @@ class _MainJournalScreenState extends State<MainJournalScreen> {
                       title: const Text('Permanently Delete?'),
                       content: const Text('This action cannot be undone.'),
                       actions: [
-                        TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+                        TextButton(
+                          onPressed: () => Navigator.pop(ctx, false),
+                          child: const Text('Cancel'),
+                        ),
                         ElevatedButton(
                           onPressed: () => Navigator.pop(ctx, true),
-                          style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.redAccent,
+                          ),
                           child: const Text('Delete Forever'),
                         ),
                       ],
@@ -1017,12 +1225,7 @@ class _MainJournalScreenState extends State<MainJournalScreen> {
           mainAxisAlignment: MainAxisAlignment.center,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            const Center(
-              child: Text(
-                '📓',
-                style: TextStyle(fontSize: 72),
-              ),
-            ),
+            const Center(child: Text('📓', style: TextStyle(fontSize: 72))),
             const SizedBox(height: 16),
             const Center(
               child: Text(
@@ -1054,13 +1257,19 @@ class _MainJournalScreenState extends State<MainJournalScreen> {
                 style: ElevatedButton.styleFrom(
                   backgroundColor: const Color(0xFF818CF8),
                   padding: const EdgeInsets.symmetric(vertical: 14),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8),
+                  ),
                 ),
               ),
             ] else ...[
               const Text(
                 'Recent Notes',
-                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Colors.grey),
+                style: TextStyle(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 14,
+                  color: Colors.grey,
+                ),
               ),
               const SizedBox(height: 10),
               ListView.builder(
@@ -1072,7 +1281,10 @@ class _MainJournalScreenState extends State<MainJournalScreen> {
                   return Card(
                     margin: const EdgeInsets.symmetric(vertical: 6),
                     child: ListTile(
-                      leading: Text(page.emoji, style: const TextStyle(fontSize: 20)),
+                      leading: Text(
+                        page.emoji,
+                        style: const TextStyle(fontSize: 20),
+                      ),
                       title: Text(
                         page.title.isEmpty ? 'Untitled' : page.title,
                         style: const TextStyle(fontWeight: FontWeight.bold),
@@ -1101,6 +1313,7 @@ class _MainJournalScreenState extends State<MainJournalScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
+        const Focus(autofocus: true, child: SizedBox.shrink()),
         Container(
           padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
           child: Row(

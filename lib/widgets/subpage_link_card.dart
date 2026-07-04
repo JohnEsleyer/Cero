@@ -42,7 +42,9 @@ class _SubpageLinkCardState extends State<SubpageLinkCard> {
 
   List<DbPage> get _candidates {
     return widget.allPages
-        .where((p) => p.id != widget.card.pageId && p.relationType != 'sidepage')
+        .where(
+          (p) => p.id != widget.card.pageId && p.relationType != 'sidepage',
+        )
         .toList();
   }
 
@@ -88,17 +90,29 @@ class _SubpageLinkCardState extends State<SubpageLinkCard> {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: const BoxDecoration(
-        border: Border(bottom: BorderSide(color: Color(0xFF2E2E2E), width: 0.5)),
+        border: Border(
+          bottom: BorderSide(color: Color(0xFF2E2E2E), width: 0.5),
+        ),
       ),
       child: Row(
         children: [
           const Icon(Icons.link, size: 16, color: Color(0xFF64748B)),
           const SizedBox(width: 6),
-          const Text('Subpage Link', style: TextStyle(fontSize: 12, color: Color(0xFF64748B))),
+          const Text(
+            'Subpage Link',
+            style: TextStyle(fontSize: 12, color: Color(0xFF64748B)),
+          ),
           const Spacer(),
-          if (widget.onMoveUp != null) _actionBtn(Icons.arrow_upward, widget.onMoveUp!),
-          if (widget.onMoveDown != null) _actionBtn(Icons.arrow_downward, widget.onMoveDown!),
-          if (widget.onDelete != null) _actionBtn(Icons.delete_outline, widget.onDelete!, color: const Color(0xFFF87171)),
+          if (widget.onMoveUp != null)
+            _actionBtn(Icons.arrow_upward, widget.onMoveUp!),
+          if (widget.onMoveDown != null)
+            _actionBtn(Icons.arrow_downward, widget.onMoveDown!),
+          if (widget.onDelete != null)
+            _actionBtn(
+              Icons.delete_outline,
+              widget.onDelete!,
+              color: const Color(0xFFF87171),
+            ),
         ],
       ),
     );
@@ -229,6 +243,7 @@ class _PagePickerSheetState extends State<_PagePickerSheet> {
       expand: false,
       builder: (ctx, scrollController) => Column(
         children: [
+          const Focus(autofocus: true, child: SizedBox.shrink()),
           // Header
           Container(
             padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
@@ -248,25 +263,39 @@ class _PagePickerSheetState extends State<_PagePickerSheet> {
                       ),
                     ),
                     IconButton(
-                      icon: const Icon(Icons.close, color: Colors.grey, size: 20),
+                      icon: const Icon(
+                        Icons.close,
+                        color: Colors.grey,
+                        size: 20,
+                      ),
                       onPressed: () => Navigator.pop(ctx),
                       padding: EdgeInsets.zero,
-                      constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
+                      constraints: const BoxConstraints(
+                        minWidth: 28,
+                        minHeight: 28,
+                      ),
                     ),
                   ],
                 ),
                 const SizedBox(height: 8),
                 // Search bar
                 TextField(
-                  autofocus: true,
+                  autofocus: false,
                   onChanged: (v) => setState(() => _searchQuery = v),
                   style: const TextStyle(color: Colors.white, fontSize: 14),
                   decoration: InputDecoration(
                     hintText: 'Search pages...',
                     hintStyle: TextStyle(color: Colors.grey.shade600),
-                    prefixIcon: const Icon(Icons.search, color: Colors.grey, size: 18),
+                    prefixIcon: const Icon(
+                      Icons.search,
+                      color: Colors.grey,
+                      size: 18,
+                    ),
                     isDense: true,
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 10,
+                    ),
                     filled: true,
                     fillColor: const Color(0xFF2A2A2A),
                     border: OutlineInputBorder(
@@ -300,9 +329,14 @@ class _PagePickerSheetState extends State<_PagePickerSheet> {
                   style: TextStyle(color: Color(0xFF818CF8), fontSize: 13),
                 ),
                 style: OutlinedButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 10,
+                  ),
                   side: const BorderSide(color: Color(0xFF3E3E3E)),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8),
+                  ),
                 ),
               ),
             ),
@@ -317,7 +351,9 @@ class _PagePickerSheetState extends State<_PagePickerSheet> {
                     child: Padding(
                       padding: const EdgeInsets.all(24),
                       child: Text(
-                        _searchQuery.isEmpty ? 'No pages available' : 'No pages match "$_searchQuery"',
+                        _searchQuery.isEmpty
+                            ? 'No pages available'
+                            : 'No pages match "$_searchQuery"',
                         style: const TextStyle(color: Colors.grey),
                       ),
                     ),
@@ -328,7 +364,10 @@ class _PagePickerSheetState extends State<_PagePickerSheet> {
                     itemBuilder: (_, i) {
                       final p = _filtered[i];
                       return ListTile(
-                        leading: Text(p.emoji, style: const TextStyle(fontSize: 20)),
+                        leading: Text(
+                          p.emoji,
+                          style: const TextStyle(fontSize: 20),
+                        ),
                         title: Text(
                           p.title,
                           style: const TextStyle(color: Colors.white),
