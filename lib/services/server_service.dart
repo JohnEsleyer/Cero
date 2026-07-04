@@ -683,6 +683,7 @@ class ServerService extends ChangeNotifier {
         'type': 'add_card',
         'item': card.toMap(),
       });
+      notifyListeners();
     } catch (e) {
       debugPrint('Error inserting card: $e');
     }
@@ -711,6 +712,7 @@ class ServerService extends ChangeNotifier {
         'type': 'update_card',
         'item': card.toMap(),
       });
+      notifyListeners();
     } catch (e) {
       debugPrint('Error updating card: $e');
     }
@@ -729,7 +731,6 @@ class ServerService extends ChangeNotifier {
 
   Future<void> _deleteCard(String cardId, {required bool fromRemote}) async {
     try {
-      // Look up page_id before deleting so we can include it in the broadcast
       final card = await _dbService.getCard(cardId);
       final pageId = card?.pageId ?? '';
 
@@ -740,6 +741,7 @@ class ServerService extends ChangeNotifier {
         'id': cardId,
         'page_id': pageId,
       });
+      notifyListeners();
     } catch (e) {
       debugPrint('Error deleting card: $e');
     }
@@ -754,6 +756,7 @@ class ServerService extends ChangeNotifier {
         'page_id': pageId,
         'order': cardIds,
       });
+      notifyListeners();
     } catch (e) {
       debugPrint('Error reordering cards: $e');
     }

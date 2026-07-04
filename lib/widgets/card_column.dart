@@ -36,6 +36,80 @@ class CardColumn extends StatefulWidget {
 class _CardColumnState extends State<CardColumn> {
   @override
   Widget build(BuildContext context) {
+    if (widget.cards.isEmpty) {
+      return Center(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(32),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const Icon(
+                Icons.note_alt_outlined,
+                size: 64,
+                color: Color(0xFF4A4A4A),
+              ),
+              const SizedBox(height: 16),
+              const Text(
+                'This page is empty',
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.grey,
+                ),
+              ),
+              const SizedBox(height: 8),
+              const Text(
+                'Add blocks to start writing and organizing your thoughts.',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 13,
+                  color: Color(0xFF64748B),
+                ),
+              ),
+              const SizedBox(height: 24),
+              Wrap(
+                spacing: 12,
+                runSpacing: 12,
+                alignment: WrapAlignment.center,
+                children: [
+                  ElevatedButton.icon(
+                    onPressed: () => widget.onCardAdded(widget.selectedPage.id, 'markdown', ''),
+                    icon: const Icon(Icons.text_fields, size: 16),
+                    label: const Text('Markdown'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF818CF8).withValues(alpha: 0.15),
+                      foregroundColor: const Color(0xFF818CF8),
+                      elevation: 0,
+                    ),
+                  ),
+                  ElevatedButton.icon(
+                    onPressed: () => widget.onCardAdded(widget.selectedPage.id, 'image', ''),
+                    icon: const Icon(Icons.image_outlined, size: 16),
+                    label: const Text('Image'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF818CF8).withValues(alpha: 0.15),
+                      foregroundColor: const Color(0xFF818CF8),
+                      elevation: 0,
+                    ),
+                  ),
+                  ElevatedButton.icon(
+                    onPressed: () => widget.onCardAdded(widget.selectedPage.id, 'subpage_link', ''),
+                    icon: const Icon(Icons.link, size: 16),
+                    label: const Text('Link'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF818CF8).withValues(alpha: 0.15),
+                      foregroundColor: const Color(0xFF818CF8),
+                      elevation: 0,
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
     return Column(
       children: [
         Expanded(
