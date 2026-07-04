@@ -322,8 +322,21 @@ class ServerService extends ChangeNotifier {
           break;
         case 'update':
           if (data['item'] != null) {
-            final updatedPage = DbPage.fromMap(data['item']);
-            await _updateItem(updatedPage, fromRemote: true);
+            final Map<String, dynamic> itemMap = Map<String, dynamic>.from(data['item']);
+            final String pageId = itemMap['id'] ?? '';
+            if (pageId.isNotEmpty) {
+              final index = _pages.indexWhere((p) => p.id == pageId);
+              if (index != -1) {
+                final existingPage = _pages[index];
+                final mergedMap = existingPage.toMap();
+                itemMap.forEach((key, value) {
+                  if (value != null) mergedMap[key] = value;
+                });
+                mergedMap['updated_at'] = DateTime.now().toIso8601String();
+                final updatedPage = DbPage.fromMap(mergedMap);
+                await _updateItem(updatedPage, fromRemote: true);
+              }
+            }
           }
           break;
         case 'delete':
@@ -361,8 +374,20 @@ class ServerService extends ChangeNotifier {
           break;
         case 'update_card':
           if (data['item'] != null) {
-            final card = Card.fromMap(data['item']);
-            await _updateCard(card, fromRemote: true);
+            final Map<String, dynamic> itemMap = Map<String, dynamic>.from(data['item']);
+            final String cardId = itemMap['id'] ?? '';
+            if (cardId.isNotEmpty) {
+              final existingCard = await _dbService.getCard(cardId);
+              if (existingCard != null) {
+                final mergedMap = existingCard.toMap();
+                itemMap.forEach((key, value) {
+                  if (value != null) mergedMap[key] = value;
+                });
+                mergedMap['updated_at'] = DateTime.now().toIso8601String();
+                final card = Card.fromMap(mergedMap);
+                await _updateCard(card, fromRemote: true);
+              }
+            }
           }
           break;
         case 'delete_card':
