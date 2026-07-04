@@ -1,6 +1,8 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter_markdown/flutter_markdown.dart';
 import 'services/server_service.dart';
-import 'models/db_item.dart';
+import 'models/page_model.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -18,40 +20,66 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'PocketDatabase Mobile Server',
+      title: 'Cero Journal',
       debugShowCheckedModeBanner: false,
       theme: ThemeData.dark().copyWith(
-        scaffoldBackgroundColor: const Color(0xFF0F172A), // Slate 900
+        scaffoldBackgroundColor: const Color(0xFF191919), // Notion Dark
+        primaryColor: const Color(0xFF818CF8), // Soft Violet
         colorScheme: ColorScheme.fromSeed(
-          seedColor: const Color(0xFF6366F1), // Indigo 500
+          seedColor: const Color(0xFF818CF8),
           brightness: Brightness.dark,
-          primary: const Color(0xFF6366F1),
-          secondary: const Color(0xFF8B5CF6), // Violet 500
-          surface: const Color(0xFF1E293B), // Slate 800
-          background: const Color(0xFF0F172A),
+          primary: const Color(0xFF818CF8),
+          secondary: const Color(0xFF818CF8),
+          surface: const Color(0xFF202020),
+          background: const Color(0xFF191919),
         ),
         cardTheme: const CardThemeData(
-          color: Color(0xFF1E293B),
-          elevation: 2,
-          margin: EdgeInsets.symmetric(vertical: 6, horizontal: 12),
+          color: Color(0xFF202020),
+          elevation: 0,
+        ),
+        drawerTheme: const DrawerThemeData(
+          backgroundColor: Color(0xFF202020),
         ),
       ),
-      home: ServerHomeScreen(serverService: serverService),
+      home: MainJournalScreen(serverService: serverService),
     );
   }
 }
 
-class ServerHomeScreen extends StatefulWidget {
+class MainJournalScreen extends StatefulWidget {
   final ServerService serverService;
   
-  const ServerHomeScreen({super.key, required this.serverService});
+  const MainJournalScreen({super.key, required this.serverService});
 
   @override
-  State<ServerHomeScreen> createState() => _ServerHomeScreenState();
+  State<MainJournalScreen> createState() => _MainJournalScreenState();
 }
 
-class _ServerHomeScreenState extends State<ServerHomeScreen> {
+class _MainJournalScreenState extends State<MainJournalScreen> {
   late final ServerService _serverService;
+  
+  // Selected page state
+  DbPage? _selectedPage;
+  bool _isEditing = false; // Toggle between Edit and Preview
+  
+  // Navigation State
+  final Set<String> _expandedPageIds = {};
+  bool _showArchived = false;
+  List<DbPage> _archivedPages = [];
+  
+  // Text Editing Controllers
+  final TextEditingController _titleController = TextEditingController();
+  final TextEditingController _contentController = TextEditingController();
+  final FocusNode _contentFocusNode = FocusNode();
+
+  // Debounce timer for save operations (task 4)
+  Timer? _saveDebounceTimer;
+
+  final List<String> _curatedEmojis = [
+    '📓', '📝', '📅', '💭', '💡', '🏷️', '✈️', '🏃', '💻', '🏠', 
+    '🎨', '🎵', '📚', '✍️', '❤️', '🌟', '🍀', '☀️', '🌧️', '☕', 
+    '🧠', '🔋', '🏡', '🎯'
+  ];
 
   @override
   void initState() {
@@ -63,56 +91,139 @@ class _ServerHomeScreenState extends State<ServerHomeScreen> {
   @override
   void dispose() {
     _serverService.removeListener(_onServerStateChanged);
+    _titleController.dispose();
+    _contentController.dispose();
+    _contentFocusNode.dispose();
+    _saveDebounceTimer?.cancel();
     super.dispose();
   }
 
   void _onServerStateChanged() {
     if (mounted) {
-      setState(() {});
+      setState(() {
+        // If the selected page was modified elsewhere, refresh its content
+        if (_selectedPage != null) {
+          final updatedPage = _serverService.pages.firstWhere(
+            (p) => p.id == _selectedPage!.id,
+            orElse: () => _selectedPage!,
+          );
+          
+          // If page was archived from remote, close it
+          if (!_serverService.pages.any((p) => p.id == _selectedPage!.id)) {
+            _selectedPage = null;
+            _isEditing = false;
+          } else if (updatedPage.revision > _selectedPage!.revision) {
+            _selectedPage = updatedPage;
+            // Only update text controllers if user is not currently focusing
+            if (!_contentFocusNode.hasFocus) {
+              _titleController.text = updatedPage.title;
+              _contentController.text = updatedPage.content;
+            }
+          }
+        }
+
+        // Check for pending connections and show pairing dialog
+        _checkPendingConnections();
+      });
     }
   }
 
-  // Show dialog to add or edit an item
-  void _showItemDialog([DbItem? item]) {
-    final titleController = TextEditingController(text: item?.title ?? '');
-    final contentController = TextEditingController(text: item?.content ?? '');
+  void _checkPendingConnections() {
+    final pendingList = _serverService.pendingConnections;
+    if (pendingList.isEmpty) return;
 
+    for (int i = 0; i < pendingList.length; i++) {
+      final pending = pendingList[i];
+      _showPairingDialog(i, pending.remoteAddress);
+    }
+  }
+
+  void _showPairingDialog(int index, String remoteAddress) {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF202020),
+        title: const Text('Pairing Request'),
+        content: Text(
+          'Device at $remoteAddress wants to connect to your journal.\n\nAllow this connection?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () {
+              _serverService.rejectPendingClient(index);
+              Navigator.pop(ctx);
+            },
+            child: const Text('Deny', style: TextStyle(color: Colors.redAccent)),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              _serverService.approvePendingClient(index);
+              Navigator.pop(ctx);
+            },
+            style: ElevatedButton.styleFrom(backgroundColor: Color(0xFF818CF8)),
+            child: const Text('Allow'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _selectPage(DbPage page) {
+    setState(() {
+      _selectedPage = page;
+      _titleController.text = page.title;
+      _contentController.text = page.content;
+      _isEditing = false;
+    });
+  }
+
+  void _saveCurrentPage() {
+    if (_selectedPage == null) return;
+    
+    // Debounce: cancel any pending save and restart timer
+    _saveDebounceTimer?.cancel();
+    _saveDebounceTimer = Timer(const Duration(milliseconds: 500), () {
+      final newTitle = _titleController.text.trim().isEmpty 
+          ? 'Untitled' 
+          : _titleController.text.trim();
+          
+      _serverService.updatePage(
+        id: _selectedPage!.id,
+        title: newTitle,
+        content: _contentController.text,
+        emoji: _selectedPage!.emoji,
+      );
+    });
+  }
+
+  void _createSubpage(String? parentId) async {
+    await _serverService.addPage(
+      parentId: parentId,
+      title: 'New Page',
+      content: '# New Page\n\nStart writing markdown here...',
+      emoji: '📝',
+    );
+    
+    // Auto-select the newly created page
+    final newPage = _serverService.pages.last;
+    _selectPage(newPage);
+    
+    if (parentId != null) {
+      setState(() {
+        _expandedPageIds.add(parentId);
+      });
+    }
+  }
+
+  void _archiveSelectedPage(String id) {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        backgroundColor: const Color(0xFF1E293B),
-        title: Text(
-          item == null ? 'Create Database Record' : 'Edit Database Record',
-          style: const TextStyle(fontWeight: FontWeight.bold),
-        ),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(
-              controller: titleController,
-              decoration: const InputDecoration(
-                labelText: 'Title',
-                border: OutlineInputBorder(),
-                focusedBorder: OutlineInputBorder(
-                  borderSide: BorderSide(color: Color(0xFF6366F1), width: 2),
-                ),
-              ),
-              textCapitalization: TextCapitalization.words,
-            ),
-            const SizedBox(height: 16),
-            TextField(
-              controller: contentController,
-              decoration: const InputDecoration(
-                labelText: 'Content',
-                border: OutlineInputBorder(),
-                focusedBorder: OutlineInputBorder(
-                  borderSide: BorderSide(color: Color(0xFF6366F1), width: 2),
-                ),
-              ),
-              maxLines: 3,
-              textCapitalization: TextCapitalization.sentences,
-            ),
-          ],
+        backgroundColor: const Color(0xFF202020),
+        title: const Text('Archive Page?'),
+        content: const Text(
+          'This will archive this page and all subpages nested inside it. You can restore them later from the trash.',
         ),
         actions: [
           TextButton(
@@ -120,147 +231,343 @@ class _ServerHomeScreenState extends State<ServerHomeScreen> {
             child: const Text('Cancel', style: TextStyle(color: Colors.grey)),
           ),
           ElevatedButton(
-            onPressed: () {
-              final title = titleController.text.trim();
-              final content = contentController.text.trim();
-              if (title.isNotEmpty && content.isNotEmpty) {
-                if (item == null) {
-                  _serverService.addItem(title, content);
-                } else {
-                  _serverService.updateItem(item.id, title, content);
-                }
-                Navigator.pop(context);
+            onPressed: () async {
+              Navigator.pop(context);
+              if (_selectedPage?.id == id) {
+                setState(() {
+                  _selectedPage = null;
+                  _isEditing = false;
+                });
               }
+              await _serverService.deletePage(id);
             },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFF6366F1),
-              foregroundColor: Colors.white,
-            ),
-            child: const Text('Save'),
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.orangeAccent),
+            child: const Text('Archive'),
           ),
         ],
       ),
     );
+  }
+
+  Future<void> _showMoveDialog() async {
+    final allPages = _serverService.pages;
+    final currentPage = _selectedPage;
+    if (currentPage == null) return;
+
+    final selectedParent = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF202020),
+        title: const Text('Move Page To...'),
+        content: SizedBox(
+          width: double.maxFinite,
+          height: 300,
+          child: ListView(
+            children: [
+              ListTile(
+                dense: true,
+                leading: const Icon(Icons.folder_off_outlined, color: Colors.grey),
+                title: const Text('Root Level (No Parent)', style: TextStyle(fontSize: 13)),
+                onTap: () => Navigator.pop(ctx, ''),
+              ),
+              ...allPages
+                .where((p) => p.id != currentPage.id)
+                .map((page) => ListTile(
+                  dense: true,
+                  leading: Text(page.emoji, style: const TextStyle(fontSize: 16)),
+                  title: Text(page.title.isEmpty ? 'Untitled' : page.title, style: const TextStyle(fontSize: 13)),
+                  subtitle: page.parentId != null ? const Text('subpage', style: TextStyle(fontSize: 10, color: Colors.grey)) : null,
+                  onTap: () => Navigator.pop(ctx, page.id),
+                )),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel', style: TextStyle(color: Colors.grey)),
+          ),
+        ],
+      ),
+    );
+
+    if (selectedParent != null) {
+      final newParentId = selectedParent.isEmpty ? null : selectedParent;
+      await _serverService.movePage(currentPage.id, newParentId);
+    }
+  }
+
+  void _showEmojiPicker() {
+    if (_selectedPage == null) return;
+    
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: const Color(0xFF202020),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (context) => Container(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Select Emoji Icon',
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 16),
+            GridView.builder(
+              shrinkWrap: true,
+              itemCount: _curatedEmojis.length,
+              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: 6,
+                mainAxisSpacing: 12,
+                crossAxisSpacing: 12,
+              ),
+              itemBuilder: (context, index) {
+                final emoji = _curatedEmojis[index];
+                return InkWell(
+                  onTap: () {
+                    setState(() {
+                      _selectedPage = _selectedPage!.copyWith(emoji: emoji);
+                    });
+                    _saveCurrentPage();
+                    Navigator.pop(context);
+                  },
+                  child: Center(
+                    child: Text(
+                      emoji,
+                      style: const TextStyle(fontSize: 28),
+                    ),
+                  ),
+                );
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // Helper to insert markdown tags at cursor position
+  void _insertMarkdown(String prefix, String suffix) {
+    final text = _contentController.text;
+    final selection = _contentController.selection;
+    
+    if (!selection.isValid) return;
+
+    final selectedText = selection.textInside(text);
+    final newText = text.replaceRange(
+      selection.start,
+      selection.end,
+      '$prefix$selectedText$suffix',
+    );
+    
+    _contentController.value = TextEditingValue(
+      text: newText,
+      selection: TextSelection.collapsed(
+        offset: selection.start + prefix.length + selectedText.length,
+      ),
+    );
+    _saveCurrentPage();
   }
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    
+    final allPages = _serverService.pages;
+    final rootPages = allPages.where((p) => p.parentId == null).toList();
+
     return Scaffold(
       appBar: AppBar(
-        title: const Row(
+        title: Row(
           children: [
-            Icon(Icons.storage, color: Color(0xFF6366F1)),
-            SizedBox(width: 8),
-            Text(
-              'PocketDB Mobile',
-              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 20),
+            const Text(
+              'Cero',
+              style: TextStyle(fontWeight: FontWeight.bold, letterSpacing: -0.5),
+            ),
+            const SizedBox(width: 8),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+              decoration: BoxDecoration(
+                color: _serverService.isRunning 
+                    ? Colors.green.withOpacity(0.1) 
+                    : Colors.grey.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(4),
+              ),
+              child: Text(
+                _serverService.isRunning ? 'LINK ON' : 'LINK OFF',
+                style: TextStyle(
+                  fontSize: 10, 
+                  fontWeight: FontWeight.bold,
+                  color: _serverService.isRunning ? Colors.green : Colors.grey,
+                ),
+              ),
             ),
           ],
         ),
-        backgroundColor: const Color(0xFF0F172A),
+        backgroundColor: const Color(0xFF191919),
         elevation: 0,
         actions: [
-          IconButton(
-            icon: const Icon(Icons.refresh),
-            tooltip: 'Update IP',
-            onPressed: () => _serverService.updateLocalIp(),
-          ),
-        ],
-      ),
-      body: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          // Network Server Status Card
-          _buildStatusCard(theme),
-          
-          // Connected Clients Section
-          _buildConnectedClientsHeader(),
-          
-          // Database Items List Header
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Row(
-                  children: [
-                    const Text(
-                      'Database Records',
-                      style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.white,
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFF1E293B),
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: Text(
-                        '${_serverService.dbItems.length}',
-                        style: const TextStyle(fontSize: 12, color: Colors.grey),
-                      ),
-                    ),
-                  ],
+          if (_selectedPage != null) ...[
+            // Toggle Edit vs Preview Mode
+            IconButton(
+              icon: Icon(_isEditing ? Icons.visibility : Icons.edit),
+              tooltip: _isEditing ? 'Preview Mode' : 'Edit Mode',
+              onPressed: () {
+                if (_isEditing) {
+                  _saveCurrentPage();
+                }
+                setState(() {
+                  _isEditing = !_isEditing;
+                });
+              },
+            ),
+            // Options Dropdown
+            PopupMenuButton<String>(
+              onSelected: (value) async {
+                if (value == 'delete') {
+                  _archiveSelectedPage(_selectedPage!.id);
+                } else if (value == 'subpage') {
+                  _createSubpage(_selectedPage!.id);
+                } else if (value == 'move') {
+                  _showMoveDialog();
+                } else if (value == 'close') {
+                  setState(() {
+                    _selectedPage = null;
+                    _isEditing = false;
+                  });
+                }
+              },
+              itemBuilder: (context) => [
+                const PopupMenuItem(
+                  value: 'subpage',
+                  child: Row(
+                    children: [
+                      Icon(Icons.add_box_outlined, size: 18),
+                      SizedBox(width: 8),
+                      Text('Create Subpage'),
+                    ],
+                  ),
                 ),
-                TextButton.icon(
-                  onPressed: () => _showItemDialog(),
-                  icon: const Icon(Icons.add, size: 18),
-                  label: const Text('Add Record'),
-                  style: TextButton.styleFrom(
-                    foregroundColor: const Color(0xFF6366F1),
+                const PopupMenuItem(
+                  value: 'move',
+                  child: Row(
+                    children: [
+                      Icon(Icons.drive_file_move_outline, size: 18),
+                      SizedBox(width: 8),
+                      Text('Move To...'),
+                    ],
+                  ),
+                ),
+                PopupMenuItem(
+                  value: 'delete',
+                  child: Row(
+                    children: [
+                      const Icon(Icons.archive, size: 18, color: Colors.orangeAccent),
+                      const SizedBox(width: 8),
+                      const Text('Archive Page', style: TextStyle(color: Colors.orangeAccent)),
+                    ],
+                  ),
+                ),
+                const PopupMenuItem(
+                  value: 'close',
+                  child: Row(
+                    children: [
+                      Icon(Icons.close, size: 18),
+                      SizedBox(width: 8),
+                      Text('Close Note'),
+                    ],
                   ),
                 ),
               ],
-            ),
-          ),
-          
-          // Database Items List
-          Expanded(
-            child: _serverService.dbItems.isEmpty
-                ? _buildEmptyState()
-                : ListView.builder(
-                    itemCount: _serverService.dbItems.length,
-                    itemBuilder: (context, index) {
-                      final item = _serverService.dbItems[index];
-                      return _buildDbItemCard(item);
-                    },
-                  ),
-          ),
+            )
+          ]
         ],
+      ),
+      drawer: _buildDrawer(rootPages, allPages),
+      body: _selectedPage == null
+          ? _buildDashboard(rootPages)
+          : _buildPageEditor(),
+    );
+  }
+
+  Widget _buildDrawer(List<DbPage> rootPages, List<DbPage> allPages) {
+    return Drawer(
+      child: SafeArea(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            // Header with Sync Control
+            _buildDrawerHeader(),
+            
+            // Nested Pages List (or Archived Pages)
+            Expanded(
+              child: ListView(
+                padding: const EdgeInsets.symmetric(vertical: 8),
+                children: _showArchived
+                    ? (_archivedPages.map((page) => _buildArchivedPageTile(page)).toList())
+                    : rootPages.map((page) => _buildPageTreeNode(page, allPages, 0)).toList(),
+              ),
+            ),
+            
+            // Sidebar Footer Actions
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+              child: ElevatedButton.icon(
+                onPressed: () => _createSubpage(null),
+                icon: const Icon(Icons.add),
+                label: const Text('Add Root Page'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF818CF8),
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                ),
+              ),
+            ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 4, 4, 16),
+                child: OutlinedButton.icon(
+                  onPressed: () async {
+                    if (!_showArchived) {
+                      final archived = await _serverService.getArchivedPages();
+                      setState(() {
+                        _archivedPages = archived;
+                        _showArchived = true;
+                      });
+                    } else {
+                      setState(() {
+                        _showArchived = false;
+                      });
+                    }
+                  },
+                icon: Icon(_showArchived ? Icons.list_alt : Icons.archive_outlined, size: 16),
+                label: Text(_showArchived ? 'Show Active Pages' : 'View Trash'),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: Colors.grey,
+                  side: const BorderSide(color: Color(0xFF2C2C2C)),
+                  padding: const EdgeInsets.symmetric(vertical: 10),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
 
-  Widget _buildStatusCard(ThemeData theme) {
+  Widget _buildDrawerHeader() {
     final isRunning = _serverService.isRunning;
-    
+    final clientsCount = _serverService.clients.length;
+
     return Container(
-      margin: const EdgeInsets.all(12),
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: const Color(0xFF1E293B), // Slate 800
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: isRunning 
-              ? const Color(0xFF6366F1).withOpacity(0.3) 
-              : Colors.grey.withOpacity(0.1),
-          width: 1.5,
+      padding: const EdgeInsets.all(20),
+      decoration: const BoxDecoration(
+        border: Border(
+          bottom: BorderSide(color: Color(0xFF2C2C2C)),
         ),
-        boxShadow: [
-          BoxShadow(
-            color: isRunning 
-                ? const Color(0xFF6366F1).withOpacity(0.1) 
-                : Colors.transparent,
-            blurRadius: 16,
-            offset: const Offset(0, 4),
-          )
-        ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -268,284 +575,511 @@ class _ServerHomeScreenState extends State<ServerHomeScreen> {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Column(
+              const Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text(
-                    'Local Sync Server',
-                    style: TextStyle(
-                      fontSize: 14,
-                      color: Colors.grey,
-                      fontWeight: FontWeight.w500,
-                    ),
+                  Text(
+                    'Cero Sync Hub',
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                   ),
-                  const SizedBox(height: 4),
-                  Row(
-                    children: [
-                      Container(
-                        width: 8,
-                        height: 8,
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          color: isRunning ? Colors.green : Colors.red,
-                        ),
-                      ),
-                      const SizedBox(width: 6),
-                      Text(
-                        isRunning ? 'Running' : 'Stopped',
-                        style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold,
-                          color: isRunning ? Colors.green : Colors.red,
-                        ),
-                      ),
-                    ],
+                  Text(
+                    'Local Database Truth',
+                    style: TextStyle(fontSize: 11, color: Colors.grey),
                   ),
                 ],
               ),
               Switch.adaptive(
                 value: isRunning,
-                activeColor: const Color(0xFF6366F1),
-                onChanged: (value) async {
-                  if (value) {
+                activeColor: const Color(0xFF818CF8),
+                onChanged: (val) async {
+                  if (val) {
                     await _serverService.startServer();
                   } else {
                     await _serverService.stopServer();
                   }
+                  setState(() {});
                 },
               ),
             ],
           ),
-          const Divider(height: 24, color: Color(0xFF334155)),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              _buildInfoItem('IP Address', _serverService.localIp),
-              _buildInfoItem('WS Port', '${_serverService.wsPort}'),
-              _buildInfoItem('UDP Port', '9100'),
-            ],
-          ),
-          if (isRunning) ...[
-            const SizedBox(height: 12),
-            Container(
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                color: const Color(0xFF0F172A).withOpacity(0.5),
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: const Row(
-                children: [
-                  SizedBox(
-                    width: 12,
-                    height: 12,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2,
-                      valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF6366F1)),
-                    ),
-                  ),
-                  SizedBox(width: 8),
-                  Text(
-                    'Broadcasting UDP discovery beacons...',
-                    style: TextStyle(fontSize: 11, color: Colors.grey),
-                  ),
-                ],
-              ),
+          const SizedBox(height: 12),
+          Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: const Color(0xFF191919),
+              borderRadius: BorderRadius.circular(8),
             ),
-          ],
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text('Server IP:', style: TextStyle(fontSize: 11, color: Colors.grey)),
+                    Text(
+                      _serverService.localIp,
+                      style: const TextStyle(fontSize: 11, fontFamily: 'monospace', fontWeight: FontWeight.bold),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text('Port:', style: TextStyle(fontSize: 11, color: Colors.grey)),
+                    Text('${_serverService.wsPort}', style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text('Auth PIN:', style: TextStyle(fontSize: 11, color: Colors.grey)),
+                    Text(
+                      _serverService.authPin.isEmpty ? '—' : _serverService.authPin,
+                      style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF818CF8), letterSpacing: 2),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text('Connections:', style: TextStyle(fontSize: 11, color: Colors.grey)),
+                    Text('$clientsCount active', style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.green)),
+                  ],
+                ),
+              ],
+            ),
+          ),
         ],
       ),
     );
   }
 
-  Widget _buildInfoItem(String label, String value) {
+  Widget _buildPageTreeNode(DbPage page, List<DbPage> allPages, int depth) {
+    final children = allPages.where((p) => p.parentId == page.id).toList();
+    final hasChildren = children.isNotEmpty;
+    final isExpanded = _expandedPageIds.contains(page.id);
+    final isSelected = _selectedPage?.id == page.id;
+
     return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          label,
-          style: const TextStyle(fontSize: 11, color: Colors.grey),
+        Padding(
+          padding: EdgeInsets.only(left: depth * 14.0),
+          child: ListTile(
+            dense: true,
+            visualDensity: VisualDensity.compact,
+            contentPadding: const EdgeInsets.symmetric(horizontal: 16),
+            leading: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                GestureDetector(
+                  onTap: () {
+                    setState(() {
+                      if (isExpanded) {
+                        _expandedPageIds.remove(page.id);
+                      } else {
+                        _expandedPageIds.add(page.id);
+                      }
+                    });
+                  },
+                  child: Icon(
+                    hasChildren 
+                        ? (isExpanded ? Icons.keyboard_arrow_down : Icons.keyboard_arrow_right) 
+                        : Icons.circle,
+                    size: hasChildren ? 18 : 6,
+                    color: Colors.grey,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Text(page.emoji, style: const TextStyle(fontSize: 16)),
+              ],
+            ),
+            title: Text(
+              page.title.isEmpty ? 'Untitled' : page.title,
+              style: TextStyle(
+                fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                color: isSelected ? const Color(0xFF818CF8) : Colors.white,
+              ),
+              overflow: TextOverflow.ellipsis,
+            ),
+            trailing: IconButton(
+              icon: const Icon(Icons.add, size: 16),
+              tooltip: 'Add subpage',
+              onPressed: () => _createSubpage(page.id),
+            ),
+            onTap: () {
+              Navigator.pop(context); // Close Drawer
+              _selectPage(page);
+            },
+          ),
         ),
-        const SizedBox(height: 2),
-        Text(
-          value,
-          style: const TextStyle(
-            fontSize: 14,
-            fontWeight: FontWeight.bold,
-            fontFamily: 'monospace',
+        if (hasChildren && isExpanded)
+          ...children.map((child) => _buildPageTreeNode(child, allPages, depth + 1)).toList(),
+      ],
+    );
+  }
+
+  Widget _buildArchivedPageTile(DbPage page) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
+      child: Card(
+        color: const Color(0xFF191919),
+        margin: EdgeInsets.zero,
+        child: ListTile(
+          dense: true,
+          visualDensity: VisualDensity.compact,
+          leading: Text(page.emoji, style: const TextStyle(fontSize: 16)),
+          title: Text(
+            page.title.isEmpty ? 'Untitled' : page.title,
+            style: const TextStyle(
+              fontSize: 13,
+              decoration: TextDecoration.lineThrough,
+              color: Colors.grey,
+            ),
+          ),
+          trailing: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              IconButton(
+                icon: const Icon(Icons.restore_outlined, size: 18, color: Colors.green),
+                tooltip: 'Restore',
+                onPressed: () async {
+                  await _serverService.restorePage(page.id);
+                  final archived = await _serverService.getArchivedPages();
+                  setState(() {
+                    _archivedPages = archived;
+                  });
+                },
+              ),
+              IconButton(
+                icon: const Icon(Icons.delete_forever_outlined, size: 18, color: Colors.redAccent),
+                tooltip: 'Delete permanently',
+                onPressed: () async {
+                  final confirmed = await showDialog<bool>(
+                    context: context,
+                    builder: (ctx) => AlertDialog(
+                      backgroundColor: const Color(0xFF202020),
+                      title: const Text('Permanently Delete?'),
+                      content: const Text('This action cannot be undone.'),
+                      actions: [
+                        TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+                        ElevatedButton(
+                          onPressed: () => Navigator.pop(ctx, true),
+                          style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
+                          child: const Text('Delete Forever'),
+                        ),
+                      ],
+                    ),
+                  );
+                  if (confirmed == true) {
+                    await _serverService.hardDeletePage(page.id);
+                    final archived = await _serverService.getArchivedPages();
+                    setState(() {
+                      _archivedPages = archived;
+                    });
+                  }
+                },
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDashboard(List<DbPage> rootPages) {
+    return Center(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const Center(
+              child: Text(
+                '📓',
+                style: TextStyle(fontSize: 72),
+              ),
+            ),
+            const SizedBox(height: 16),
+            const Center(
+              child: Text(
+                'Cero Personal Journal',
+                style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
+              ),
+            ),
+            const SizedBox(height: 6),
+            const Center(
+              child: Text(
+                'Offline-first markdown notes, synced directly to your devices.',
+                textAlign: TextAlign.center,
+                style: TextStyle(color: Colors.grey, fontSize: 13),
+              ),
+            ),
+            const SizedBox(height: 32),
+            if (rootPages.isEmpty) ...[
+              const Center(
+                child: Text(
+                  'No journal entries created yet.',
+                  style: TextStyle(color: Colors.grey),
+                ),
+              ),
+              const SizedBox(height: 16),
+              ElevatedButton.icon(
+                onPressed: () => _createSubpage(null),
+                icon: const Icon(Icons.add),
+                label: const Text('Create First Page'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF818CF8),
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                ),
+              ),
+            ] else ...[
+              const Text(
+                'Recent Notes',
+                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Colors.grey),
+              ),
+              const SizedBox(height: 10),
+              ListView.builder(
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                itemCount: rootPages.take(4).length,
+                itemBuilder: (context, idx) {
+                  final page = rootPages[idx];
+                  return Card(
+                    margin: const EdgeInsets.symmetric(vertical: 6),
+                    child: ListTile(
+                      leading: Text(page.emoji, style: const TextStyle(fontSize: 20)),
+                      title: Text(
+                        page.title.isEmpty ? 'Untitled' : page.title,
+                        style: const TextStyle(fontWeight: FontWeight.bold),
+                      ),
+                      subtitle: Text(
+                        page.content.replaceAll(RegExp(r'[#*`\n]'), ' ').trim(),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(color: Colors.grey),
+                      ),
+                      onTap: () => _selectPage(page),
+                    ),
+                  );
+                },
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPageEditor() {
+    if (_selectedPage == null) return const SizedBox();
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        // Helper Toolbar for Markdown editing (Only in Edit mode)
+        if (_isEditing) _buildMarkdownToolbar(),
+        
+        Expanded(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.fromLTRB(20, 16, 20, 40),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Page Emoji Header
+                GestureDetector(
+                  onTap: _showEmojiPicker,
+                  child: Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withOpacity(0.03),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Text(
+                      _selectedPage!.emoji,
+                      style: const TextStyle(fontSize: 48),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                
+                // Page Title Field
+                TextField(
+                  controller: _titleController,
+                  enabled: _isEditing,
+                  style: const TextStyle(
+                    fontSize: 26, 
+                    fontWeight: FontWeight.bold,
+                  ),
+                  decoration: const InputDecoration(
+                    hintText: 'Untitled',
+                    border: InputBorder.none,
+                    hintStyle: TextStyle(color: Colors.grey),
+                  ),
+                  onChanged: (val) => _saveCurrentPage(),
+                ),
+                const SizedBox(height: 16),
+                
+                // Content Body (Edit area vs Rendered Markdown Preview)
+                _isEditing
+                    ? TextField(
+                        controller: _contentController,
+                        focusNode: _contentFocusNode,
+                        maxLines: null,
+                        keyboardType: TextInputType.multiline,
+                        style: const TextStyle(fontSize: 15, height: 1.5, fontFamily: 'monospace'),
+                        decoration: const InputDecoration(
+                          hintText: 'Start writing notes...',
+                          border: InputBorder.none,
+                        ),
+                        onChanged: (val) => _saveCurrentPage(),
+                      )
+                    : MarkdownBody(
+                        data: _contentController.text,
+                        selectable: true,
+                        styleSheet: MarkdownStyleSheet.fromTheme(Theme.of(context)).copyWith(
+                          p: const TextStyle(fontSize: 15, height: 1.6, color: Color(0xFFE2E8F0)),
+                          h1: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, height: 1.8),
+                          h2: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, height: 1.8),
+                          h3: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold, height: 1.8),
+                          code: const TextStyle(fontFamily: 'monospace', backgroundColor: Color(0xFF2C2C2C)),
+                        ),
+                      ),
+                
+                // Nested subpages list shown at the bottom of the page
+                if (!_isEditing) ...[
+                  const Divider(height: 48, color: Color(0xFF2C2C2C)),
+                  _buildSubpagesList(),
+                ],
+              ],
+            ),
           ),
         ),
       ],
     );
   }
 
-  Widget _buildConnectedClientsHeader() {
-    final clientsCount = _serverService.clients.length;
-    
+  Widget _buildMarkdownToolbar() {
     return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 12),
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-      decoration: BoxDecoration(
-        color: const Color(0xFF1E293B).withOpacity(0.6),
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      color: const Color(0xFF202020),
+      height: 40,
+      child: ListView(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.symmetric(horizontal: 8),
         children: [
-          Row(
-            children: [
-              const Icon(Icons.devices, size: 18, color: Color(0xFF8B5CF6)),
-              const SizedBox(width: 8),
-              Text(
-                'Connected Desktop Clients ($clientsCount)',
-                style: const TextStyle(
-                  fontWeight: FontWeight.bold,
-                  fontSize: 14,
-                ),
-              ),
-            ],
+          IconButton(
+            icon: const Icon(Icons.format_bold, size: 18),
+            tooltip: 'Bold',
+            onPressed: () => _insertMarkdown('**', '**'),
           ),
-          if (clientsCount > 0) ...[
-            const SizedBox(height: 8),
-            SizedBox(
-              height: 40,
-              child: ListView.builder(
-                scrollDirection: Axis.horizontal,
-                itemCount: clientsCount,
-                itemBuilder: (context, index) {
-                  final client = _serverService.clients[index];
-                  // Using remoteAddress to display client IP
-                  final clientIp = client.remoteAddress;
-                  return Container(
-                    margin: const EdgeInsets.only(right: 8),
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF6366F1).withOpacity(0.1),
-                      border: Border.all(color: const Color(0xFF6366F1).withOpacity(0.3)),
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        const Icon(Icons.laptop, size: 14, color: Color(0xFF6366F1)),
-                        const SizedBox(width: 6),
-                        Text(
-                          clientIp,
-                          style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w500),
-                        ),
-                      ],
-                    ),
-                  );
-                },
+          IconButton(
+            icon: const Icon(Icons.format_italic, size: 18),
+            tooltip: 'Italic',
+            onPressed: () => _insertMarkdown('*', '*'),
+          ),
+          IconButton(
+            icon: const Icon(Icons.title, size: 18),
+            tooltip: 'Heading 1',
+            onPressed: () => _insertMarkdown('# ', ''),
+          ),
+          IconButton(
+            icon: const Icon(Icons.format_list_bulleted, size: 18),
+            tooltip: 'Bullet List',
+            onPressed: () => _insertMarkdown('- ', ''),
+          ),
+          IconButton(
+            icon: const Icon(Icons.check_box_outlined, size: 18),
+            tooltip: 'Checkbox',
+            onPressed: () => _insertMarkdown('- [ ] ', ''),
+          ),
+          IconButton(
+            icon: const Icon(Icons.code, size: 18),
+            tooltip: 'Code Block',
+            onPressed: () => _insertMarkdown('```\n', '\n```'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSubpagesList() {
+    final subpages = _serverService.pages
+        .where((p) => p.parentId == _selectedPage!.id)
+        .toList();
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            const Text(
+              'Subpages',
+              style: TextStyle(
+                fontSize: 14, 
+                fontWeight: FontWeight.bold, 
+                color: Colors.grey,
               ),
             ),
-          ] else ...[
-            const SizedBox(height: 6),
-            const Text(
-              'No desktop clients connected. Start server and launch Wails app.',
-              style: TextStyle(fontSize: 11, color: Colors.grey),
+            TextButton.icon(
+              onPressed: () => _createSubpage(_selectedPage!.id),
+              icon: const Icon(Icons.add, size: 16),
+              label: const Text('Add Subpage', style: TextStyle(fontSize: 12)),
+              style: TextButton.styleFrom(foregroundColor: const Color(0xFF818CF8)),
             ),
           ],
-        ],
-      ),
-    );
-  }
-
-  Widget _buildDbItemCard(DbItem item) {
-    return Card(
-      child: InkWell(
-        borderRadius: BorderRadius.circular(8),
-        onTap: () => _showItemDialog(item),
-        child: Padding(
-          padding: const EdgeInsets.all(14),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Expanded(
-                    child: Text(
-                      item.title,
-                      style: const TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ),
-                  Row(
-                    children: [
-                      IconButton(
-                        icon: const Icon(Icons.edit, size: 18, color: Colors.grey),
-                        onPressed: () => _showItemDialog(item),
-                      ),
-                      IconButton(
-                        icon: const Icon(Icons.delete, size: 18, color: Colors.redAccent),
-                        onPressed: () => _serverService.deleteItem(item.id),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-              const SizedBox(height: 4),
-              Text(
-                item.content,
-                style: TextStyle(
-                  fontSize: 14,
-                  color: Colors.grey[300],
-                ),
-              ),
-              const SizedBox(height: 8),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  const Row(
-                    children: [
-                      Icon(Icons.cloud_done, size: 12, color: Colors.green),
-                      SizedBox(width: 4),
-                      Text(
-                        'Synced',
-                        style: TextStyle(fontSize: 11, color: Colors.green),
-                      ),
-                    ],
-                  ),
-                  Text(
-                    _formatTime(item.updatedAt),
-                    style: const TextStyle(fontSize: 11, color: Colors.grey),
-                  ),
-                ],
-              ),
-            ],
-          ),
         ),
-      ),
-    );
-  }
-
-  Widget _buildEmptyState() {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(Icons.storage_outlined, size: 64, color: Colors.grey[700]),
-          const SizedBox(height: 16),
+        const SizedBox(height: 8),
+        if (subpages.isEmpty)
           const Text(
-            'Database is Empty',
-            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.grey),
+            'No subpages yet.',
+            style: TextStyle(fontSize: 12, color: Colors.grey, fontStyle: FontStyle.italic),
+          )
+        else
+          GridView.builder(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            itemCount: subpages.length,
+            gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+              maxCrossAxisExtent: 180,
+              mainAxisSpacing: 10,
+              crossAxisSpacing: 10,
+              childAspectRatio: 2.8,
+            ),
+            itemBuilder: (context, idx) {
+              final subpage = subpages[idx];
+              return InkWell(
+                onTap: () => _selectPage(subpage),
+                borderRadius: BorderRadius.circular(8),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.03),
+                    border: Border.all(color: Colors.white.withOpacity(0.05)),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Row(
+                    children: [
+                      Text(subpage.emoji, style: const TextStyle(fontSize: 16)),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          subpage.title.isEmpty ? 'Untitled' : subpage.title,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            },
           ),
-          const SizedBox(height: 8),
-          const Text(
-            'Create a record above to get started.',
-            style: TextStyle(color: Colors.grey),
-          ),
-        ],
-      ),
+      ],
     );
-  }
-
-  String _formatTime(DateTime dateTime) {
-    final hour = dateTime.hour.toString().padLeft(2, '0');
-    final minute = dateTime.minute.toString().padLeft(2, '0');
-    final second = dateTime.second.toString().padLeft(2, '0');
-    return '$hour:$minute:$second';
   }
 }
