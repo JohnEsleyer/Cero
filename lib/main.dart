@@ -4,6 +4,7 @@ import 'services/server_service.dart';
 import 'models/page_model.dart';
 import 'models/card_model.dart' as models;
 import 'widgets/card_column.dart';
+import 'screens/settings_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -32,7 +33,6 @@ class MyApp extends StatelessWidget {
           primary: const Color(0xFF818CF8),
           secondary: const Color(0xFF818CF8),
           surface: const Color(0xFF202020),
-          background: const Color(0xFF191919),
         ),
         cardTheme: const CardThemeData(color: Color(0xFF202020), elevation: 0),
         drawerTheme: const DrawerThemeData(backgroundColor: Color(0xFF202020)),
@@ -66,31 +66,33 @@ class _MainJournalScreenState extends State<MainJournalScreen> {
   bool _isRefreshingPage = false;
   Timer? _saveDebounceTimer;
 
-  final List<String> _curatedEmojis = [
-    '📓',
-    '📝',
-    '📅',
-    '💭',
-    '💡',
-    '🏷️',
-    '✈️',
-    '🏃',
-    '💻',
-    '🏠',
-    '🎨',
-    '🎵',
-    '📚',
-    '✍️',
-    '❤️',
-    '🌟',
-    '🍀',
-    '☀️',
-    '🌧️',
-    '☕',
-    '🧠',
-    '🔋',
-    '🏡',
-    '🎯',
+  // Rich Keyboard-Matching Categorized Emojis Catalog
+  final List<Map<String, dynamic>> _emojiCategories = [
+    {
+      'id': 'smileys',
+      'label': '😀 Smileys',
+      'emojis': ['😀', '😃', '😄', '😁', '😆', '😅', '😂', '🤣', '😊', '😇', '🙂', '🙃', '😉', '😌', '😍', '🥰', '😘', '😗', '😙', '😚', '😋', '😛', '😝', '😜', '🤪', '🤨', '🧐', '🤓', '😎', '🥸', '🤩', '🥳', '😏', '😒', '😞', '😔', '😟', '😕', '🙁', '☹️', '😣', '😖', '😫', '😩', '🥺', '😢', '😭', '😤', '😠', '😡', '🤬', '🤯', '😳', '🥵', '🥶', '😱', '😨', '😰', '😥', '😓', '🤔', '🫣', '🤭', '🫢', '🫡', '🤫', '🫠', '🤥', '😶', '😐', '😑', '😬', '🫨', '😴', '🤤', '😪', '😵', '😵💫', '🤐', '🥴', '🤢', '🤮', '🤧', '😷', '🤒', '🤕', '😈', '👿', '👹', '👺', '💀', '☠️', '👻', '👽', '👾', '🤖', '🎃', '😺', '😸', '😹', '😻', '😼', '😽', '😾', '😿', '🙀', '👋', '🤚', '🖐️', '✋', '🖖', '👌', '🤌', '🤏', '✌️', '🤞', '🫰', '🤟', '🤘', '🤙', '👈', '👉', '👆', '🖕', '👇', '☝️', '👍', '👎', '✊', '👊', '🤛', '🤜', '👏', '🙌', '🫶', '👐', '🤲', '🤝', '🙏', '✍️', '💅', '🤳', '💪', '🦾', '🦿', '🦵', '🦶', '👂', '🦻', '👃', '🧠', '🫀', '🫁', '🦷', '🦴', '👀', '👁️', '👅', '👄', '💋', '🩸', '👤', '👥', '🫂']
+    },
+    {
+      'id': 'animals',
+      'label': '🐱 Animals',
+      'emojis': ['🐶', '🐱', '🐭', '🐹', '🐰', '🦊', '🐻', '🐼', '🐨', '🐯', '🦁', '🐮', '🐷', '🐽', '🐸', '🐵', '🙈', '🙉', '🙊', '🐒', '🐔', '🐧', '🐦', '🐤', '🐣', '🐥', '🦆', '🦅', '🦉', '🪱', '🐛', '🦋', '🐌', '🐞', '🐜', '🪰', '🪲', '🪳', '🦗', '🕷️', '🕸️', '🦂', '🐢', '🐍', '🦎', '🐙', '🦑', '🦞', '🦀', '🐡', '🐠', '🐟', '🐬', '🐳', '🐋', '🦈', '🐊', '🐅', '🐆', '🦓', '🦍', '🦧', '🦣', '🐘', '🦛', '🦏', '🐪', '🐫', '🦒', '🦘', '🦬', '🐃', '🐂', '🐄', '🐎', '🐖', '🐏', '🐑', '🦙', '🐐', '🦌', '🐕', '🐩', '🦮', '🐈', '🐓', '🦃', '🦚', '🦜', '🕊️', '🐇', '🦝', '🦨', '🦡', '🦦', '🦥', '🐿️', '🦔', '🐾', '🐉', '🐲', '🌵', '🎄', '🌲', '🌳', '🌴', '🪵', '🌱', '🌿', '☘️', '🍀', '🍁', '🍂', '🍃', '🍄', '🐚', '🪸', '🪨', '🌾', '💐', '🌷', '🌹', '🥀', '🌺', '🌸', '🌼', '🌻', '🌞', '🌝', '🌛', '🌜', '🌚', '🌕', '🌖', '🌗', '🌘', '🌑', '🌒', '🌓', '🌔', '🌙', '🌎', '🌍', '🌏', '🪐', '💫', '⭐️', '🌟', '✨', '⚡️', '☄️', '💥', '🔥', '🌪️', '🌈', '☀️', '🌤️', '⛅️', '🌥️', '🌦️', '☁️', '🌧️', '⛈️', '🌩️', '🌨️', '❄️', '☃️', '⛄️', '🌬️', '💨', '💧', '💦', '🫧', '☔️', '🌊', '🌫️']
+    },
+    {
+      'id': 'food',
+      'label': '🍏 Food',
+      'emojis': ['🍏', '🍎', '🍐', '🍊', '🍋', '🍌', '🍉', '🍇', '🍓', '🫐', '🍈', '🍒', '🍑', '🥭', '🍍', '🥥', '🥝', '🍅', '🍆', '🥑', '🥦', '🥬', '🥒', '🌶️', '🫑', '🌽', '🥕', '🫒', '🧄', '🧅', '🥔', '🍠', '🥐', '🥯', '🍞', '🥖', '🥨', '🧀', '🥚', '🍳', '🥞', '🧇', '🥓', '🥩', '🍗', '🍖', '🌭', '🍔', '🍟', '🍕', '🥪', '🥙', '🫓', '🌮', '🌯', '🫔', '🥗', '🥘', '🍲', '🫕', '🥫', '🍝', '🍜', '🍛', '🍣', '🍱', '🥟', '🍤', '🍙', '🍘', '🍥', '🥠', '🥮', '🍢', '🍡', '🍧', '🍨', '🍦', '🥧', '🍰', '🎂', '🧁', '🍮', '🍭', '🍬', '🍫', '🍿', '🍩', '🍪', '🌰', '🥜', '🫘', '🍯', '🥛', '🍼', '☕️', '🍵', '🧃', '🥤', '🧋', '🍶', '🍺', '🍻', '🥂', '🍷', '🥃', '🍸', '🍹', '🧉', '🍾', '🧊', '🥢', '🍽️', '🍴', '🥄']
+    },
+    {
+      'id': 'activity',
+      'label': '⚽️ Activity',
+      'emojis': ['⚽️', '🏀', '🏈', '⚾️', '🥎', '🎾', '🏐', '🏉', '🥏', '🎱', '🪀', '🏓', '🏸', '🏒', '🏑', '🥍', '🏹', '🤿', '🥊', '🥋', '🥅', '⛳️', '⛸️', '🎽', '🎿', '🛷', '🥌', '🎯', '🪗', '🪘', '🎮', '🕹️', '🎰', '🎲', '🧩', '🧸', '🪅', '🪩', '🎨', '🖼️', '🧵', '🪡', '🧶', '🎸', '🎹', '🎺', '🎻', '🥁', '🪕', '🎧', '🎤', '🎬', '🎟️', '🎫', '🎭', '🎪', '🧗', '🏋️', '🚴', '🏃', '🚶', '🚗', '🚕', '🚙', '🚌', '🚎', '🏎️', '🚓', '🚑', '🚒', '🚐', '🛻', '🚚', '🚛', '🚜', '🛵', '🏍️', '🛺', '🚲', '🛴', '🛹', '🛼', '🚏', '🛣️', '🛤️', '🚢', '⛵️', '🚤', '🛥️', '🛳️', '⛴️', '🛶', '🛸', '🚁', '🛩️', '✈️', '🛫', '🛬', '🚀', '🛰️', '⚓️', '🗺️', '🧭', '🏔️', '⛰️', '🌋', '🗻', '🏕️', '🏖️', '🏜️', '🏝️', '🏞️', '🏛️', '🏗️', '🧱', '🏘️', '🏚️', '🏠', '🏡', '🏢', '🏣', '🏤', '🏥', '🏦', '🏨', '🏩', '🏪', '🏫', '🏬', '🏭', '🏯', '🏰', '💒', '🗼', '🗽', '🕌', '⛪️', '🛕', '🕍', '⛩️', '🕋', '⛲️', '⛺️', '🌁', '🌃', '🏙️', '🌅', '🌄', '🌇', '🌆', '🌉', '🎠', '🎡', '🎢', '💈']
+    },
+    {
+      'id': 'objects',
+      'label': '💡 Objects',
+      'emojis': ['⌚️', '📱', '📲', '💻', '⌨️', '🖥️', '🖨️', '🖱️', '🖲️', '💽', '💾', '💿', '📀', '📼', '📷', '📸', '📹', '🎥', '📽️', '🎞️', '📞', '☎️', '📟', '📠', '📺', '📻', '🎙️', '🎚️', '🎛️', '🧭', '⏰', '⌛️', '⏳', '🔋', '🔌', '💡', '🕯️', '🪔', '🗑️', '🛢️', '💸', '💵', '💴', '💶', '💷', '🪙', '💰', '💳', '💎', '⚖️', '🪜', '🔧', '🔨', '⚒️', '🛠️', '⛏️', '🪚', '🔩', '⚙️', '🧱', '⛓️', '🧲', '🧯', '🔫', '💣', '🧨', '🪓', '🔪', '🗡️', '⚔️', '🛡️', '🚬', '⚰️', '⚱️', '🏺', '🔮', '📿', '🧿', '💈', '🧫', '🧪', '🔬', '🔭', '📡', '💉', '💊', '🩹', '🩺', '🚪', '🛗', '🪞', '🪟', '🛏️', '🛋️', '🪑', '🚽', '🪠', '🚿', '🛁', '🧼', '🪥', '🪮', '🧴', '🧹', '🧺', '🧻', '🪣', '🪟', '🗝️', '🔑', '🪤', '📦', '🏷️', '✉️', '📩', '📨', '📧', '📤', '📥', '📪', '📫', '📬', '📭', '📮', '🗳️', '✏️', '✒️', '🖋️', '🖊️', '🖌️', '🖍️', '📝', '📁', '📂', '🗂️', '📅', '📆', '🗒️', '🗓️', '🪪', '🗃️', '🗄️', '📋', '📌', '📍', '📎', '🖇️', '📏', '📐', '🧮', '🔐', '🔏', '🔒', '🔓', '❤️', '🧡', '💛', '💚', '💙', '💜', '🖤', '🤍', '🤎', '💔', '❣️', '💕', '💞', '💓', '💗', '💖', '💘', '💝', '💟', '☮️', '✝️', '☪️', '🕉️', '☸️', '✡️', '🔯', '🕎', '☯️', '☦️', '🛐', '♈️', '♉️', '♊️', '♋️', '♌️', '♍️', '♎️', '♏️', '♐️', '♑️', '♒️', '♓️', '🆔', '📯', '🔔', '🔕', '📣', '📢', '💬', '💭', '🗯️', '🏁', '🚩', '🎌', '🏴', '🏳️', '🏳️🌈', '🏴☠️']
+    }
   ];
 
   @override
@@ -153,7 +155,19 @@ class _MainJournalScreenState extends State<MainJournalScreen> {
     final page = _selectedPage;
     if (page == null || _isRefreshingPage) return;
 
-    _flushPendingSave();
+    _saveDebounceTimer?.cancel();
+    _saveDebounceTimer = null;
+    if (_selectedPage != null) {
+      final newTitle = _titleController.text.trim().isEmpty
+          ? 'Untitled'
+          : _titleController.text.trim();
+
+      _serverService.updatePage(
+        id: _selectedPage!.id,
+        title: newTitle,
+        emoji: _selectedPage!.emoji,
+      );
+    }
     setState(() => _isRefreshingPage = true);
 
     try {
@@ -235,7 +249,19 @@ class _MainJournalScreenState extends State<MainJournalScreen> {
   }
 
   void _selectPage(DbPage page, {bool pushToHistory = true}) {
-    _flushPendingSave();
+    _saveDebounceTimer?.cancel();
+    _saveDebounceTimer = null;
+    if (_selectedPage != null) {
+      final newTitle = _titleController.text.trim().isEmpty
+          ? 'Untitled'
+          : _titleController.text.trim();
+
+      _serverService.updatePage(
+        id: _selectedPage!.id,
+        title: newTitle,
+        emoji: _selectedPage!.emoji,
+      );
+    }
     _titleFocusNode.unfocus();
     FocusManager.instance.primaryFocus?.unfocus();
 
@@ -265,35 +291,41 @@ class _MainJournalScreenState extends State<MainJournalScreen> {
     }
   }
 
-  void _flushPendingSave() {
-    _saveDebounceTimer?.cancel();
-    _saveDebounceTimer = null;
-    if (_selectedPage == null) return;
-
-    final newTitle = _titleController.text.trim().isEmpty
-        ? 'Untitled'
-        : _titleController.text.trim();
-
-    _serverService.updatePage(
-      id: _selectedPage!.id,
-      title: newTitle,
-      emoji: _selectedPage!.emoji,
-    );
-  }
-
   void _saveCurrentPage() {
     if (_selectedPage == null) return;
 
     _saveDebounceTimer?.cancel();
     _saveDebounceTimer = Timer(const Duration(milliseconds: 500), () {
-      _flushPendingSave();
+      _saveDebounceTimer?.cancel();
+      _saveDebounceTimer = null;
+      if (_selectedPage != null) {
+        final newTitle = _titleController.text.trim().isEmpty
+            ? 'Untitled'
+            : _titleController.text.trim();
+
+        _serverService.updatePage(
+          id: _selectedPage!.id,
+          title: newTitle,
+          emoji: _selectedPage!.emoji,
+        );
+      }
     });
   }
 
   void _saveCurrentPageImmediate() {
     _saveDebounceTimer?.cancel();
     _saveDebounceTimer = null;
-    _flushPendingSave();
+    if (_selectedPage != null) {
+      final newTitle = _titleController.text.trim().isEmpty
+          ? 'Untitled'
+          : _titleController.text.trim();
+
+      _serverService.updatePage(
+        id: _selectedPage!.id,
+        title: newTitle,
+        emoji: _selectedPage!.emoji,
+      );
+    }
   }
 
   void _createSubpage(
@@ -434,49 +466,111 @@ class _MainJournalScreenState extends State<MainJournalScreen> {
   void _showEmojiPicker() {
     if (_selectedPage == null) return;
 
+    String currentCategory = 'smileys';
+
     showModalBottomSheet(
       context: context,
       backgroundColor: const Color(0xFF202020),
+      isScrollControlled: true,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
       ),
-      builder: (context) => Container(
-        padding: const EdgeInsets.all(20),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'Select Emoji Icon',
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 16),
-            GridView.builder(
-              shrinkWrap: true,
-              itemCount: _curatedEmojis.length,
-              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                crossAxisCount: 6,
-                mainAxisSpacing: 12,
-                crossAxisSpacing: 12,
-              ),
-              itemBuilder: (context, index) {
-                final emoji = _curatedEmojis[index];
-                return InkWell(
-                  onTap: () {
-                    setState(() {
-                      _selectedPage = _selectedPage!.copyWith(emoji: emoji);
-                    });
-                    _saveCurrentPageImmediate();
-                    Navigator.pop(context);
-                  },
-                  child: Center(
-                    child: Text(emoji, style: const TextStyle(fontSize: 28)),
+      builder: (context) => StatefulBuilder(
+        builder: (context, setSheetState) {
+          final activeCategoryData = _emojiCategories.firstWhere(
+            (cat) => cat['id'] == currentCategory,
+            orElse: () => _emojiCategories.first,
+          );
+          final List<String> currentEmojis = List<String>.from(activeCategoryData['emojis']);
+
+          return Container(
+            height: MediaQuery.of(context).size.height * 0.65,
+            padding: const EdgeInsets.symmetric(vertical: 20),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 20),
+                  child: Text(
+                    'Select Emoji Icon',
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                   ),
-                );
-              },
+                ),
+                const SizedBox(height: 12),
+                // Categories Tab Bar
+                SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: Row(
+                    children: _emojiCategories.map((cat) {
+                      final isActive = cat['id'] == currentCategory;
+                      return Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 4),
+                        child: TextButton(
+                          onPressed: () {
+                            setSheetState(() {
+                              currentCategory = cat['id'] as String;
+                            });
+                          },
+                          style: TextButton.styleFrom(
+                            backgroundColor: isActive
+                                ? const Color(0xFF818CF8).withValues(alpha: 0.15)
+                                : Colors.transparent,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                          ),
+                          child: Text(
+                            cat['label'].toString().split(' ').first,
+                            style: TextStyle(
+                              color: isActive ? const Color(0xFF818CF8) : Colors.grey,
+                              fontWeight: isActive ? FontWeight.bold : FontWeight.normal,
+                              fontSize: 12,
+                            ),
+                          ),
+                        ),
+                      );
+                    }).toList(),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                const Divider(height: 1, color: Color(0xFF2D2D2D)),
+                // Grid of Active Emojis List
+                Expanded(
+                  child: GridView.builder(
+                    padding: const EdgeInsets.all(20),
+                    gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                      crossAxisCount: 6,
+                      mainAxisSpacing: 10,
+                      crossAxisSpacing: 10,
+                    ),
+                    itemCount: currentEmojis.length,
+                    itemBuilder: (context, index) {
+                      final emoji = currentEmojis[index].trim();
+                      return InkWell(
+                        onTap: () {
+                          setState(() {
+                            _selectedPage = _selectedPage!.copyWith(emoji: emoji);
+                          });
+                          _saveCurrentPageImmediate();
+                          Navigator.pop(context);
+                        },
+                        borderRadius: BorderRadius.circular(8),
+                        child: Center(
+                          child: Text(
+                            emoji,
+                            style: const TextStyle(fontSize: 26),
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              ],
             ),
-          ],
-        ),
+          );
+        },
       ),
     );
   }
@@ -740,7 +834,7 @@ class _MainJournalScreenState extends State<MainJournalScreen> {
               ),
             ),
             Padding(
-              padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
               child: ElevatedButton.icon(
                 onPressed: () => _createSubpage(null),
                 icon: const Icon(Icons.add),
@@ -756,36 +850,69 @@ class _MainJournalScreenState extends State<MainJournalScreen> {
               ),
             ),
             Padding(
-              padding: const EdgeInsets.fromLTRB(16, 4, 4, 16),
-              child: OutlinedButton.icon(
-                onPressed: () async {
-                  if (!_showArchived) {
-                    final archived = await _serverService.getArchivedPages();
-                    setState(() {
-                      _archivedPages = archived;
-                      _showArchived = true;
-                    });
-                  } else {
-                    setState(() {
-                      _showArchived = false;
-                    });
-                  }
-                },
-                icon: Icon(
-                  _showArchived ? Icons.list_alt : Icons.archive_outlined,
-                  size: 16,
-                ),
-                label: Text(_showArchived ? 'Show Active Pages' : 'View Trash'),
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: Colors.grey,
-                  side: const BorderSide(color: Color(0xFF2C2C2C)),
-                  padding: const EdgeInsets.symmetric(vertical: 10),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(8),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: () async {
+                        if (!_showArchived) {
+                          final archived = await _serverService.getArchivedPages();
+                          setState(() {
+                            _archivedPages = archived;
+                            _showArchived = true;
+                          });
+                        } else {
+                          setState(() {
+                            _showArchived = false;
+                          });
+                        }
+                      },
+                      icon: Icon(
+                        _showArchived ? Icons.list_alt : Icons.archive_outlined,
+                        size: 16,
+                      ),
+                      label: Text(_showArchived ? 'Active' : 'Trash'),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: Colors.grey,
+                        side: const BorderSide(color: Color(0xFF2C2C2C)),
+                        padding: const EdgeInsets.symmetric(vertical: 10),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                      ),
+                    ),
                   ),
-                ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: () {
+                        Navigator.pop(context); // Close drawer
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => SettingsScreen(serverService: _serverService),
+                          ),
+                        ).then((_) {
+                          setState(() {});
+                        });
+                      },
+                      icon: const Icon(Icons.settings_outlined, size: 16),
+                      label: const Text('Settings'),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: Colors.grey,
+                        side: const BorderSide(color: Color(0xFF2C2C2C)),
+                        padding: const EdgeInsets.symmetric(vertical: 10),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ),
+            const SizedBox(height: 12),
           ],
         ),
       ),

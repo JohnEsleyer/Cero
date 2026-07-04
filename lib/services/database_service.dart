@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'package:path/path.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
+import 'package:archive/archive.dart';
 import '../models/page_model.dart';
 import '../models/card_model.dart';
 
@@ -84,6 +85,12 @@ class DatabaseService {
     final file = File(filePath);
     if (await file.exists()) {
       await file.delete();
+    }
+    final wsName = basenameWithoutExtension(filePath);
+    final appDir = await getApplicationDocumentsDirectory();
+    final imageDir = Directory('${appDir.path}/cero_workspaces/${wsName}_images');
+    if (await imageDir.exists()) {
+      await imageDir.delete(recursive: true);
     }
   }
 
@@ -197,21 +204,18 @@ class DatabaseService {
 
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
     if (oldVersion < 2) {
-      // Add relation_type column to pages
       try {
         await db.execute(
           "ALTER TABLE pages ADD COLUMN relation_type TEXT NOT NULL DEFAULT 'subpage'",
         );
       } catch (_) {}
 
-      // Add revision column to pages if missing
       try {
         await db.execute(
           'ALTER TABLE pages ADD COLUMN revision INTEGER NOT NULL DEFAULT 0',
         );
       } catch (_) {}
 
-      // Create cards table if missing
       await db.execute('''
         CREATE TABLE IF NOT EXISTS cards (
           id TEXT PRIMARY KEY,
@@ -231,14 +235,13 @@ class DatabaseService {
   // --- Legacy Migration ---
 
   Future<void> _migrateLegacyData(Database db) async {
-    // Check if any pages still have 'content' column (v1 schema)
     final tables = await db.rawQuery("SELECT name FROM sqlite_master WHERE type='table' AND name='pages'");
     if (tables.isEmpty) return;
 
     final columns = await db.rawQuery("PRAGMA table_info(pages)");
     final hasContentCol = columns.any((c) => c['name'] == 'content');
 
-    if (!hasContentCol) return; // Already migrated
+    if (!hasContentCol) return;
 
     debugPrint('Migrating legacy data: content column → cards table');
 
@@ -268,7 +271,6 @@ class DatabaseService {
       }
     }
 
-    // Drop the old content column
     try {
       await db.execute('ALTER TABLE pages DROP COLUMN content');
       debugPrint('Dropped legacy content column');
@@ -404,7 +406,6 @@ class DatabaseService {
   }
 
   Future<void> _hardDeletePageAndChildrenTxn(Transaction txn, String id) async {
-    // Delete cards for this page first
     await txn.delete('cards', where: 'page_id = ?', whereArgs: [id]);
 
     final List<Map<String, dynamic>> children = await txn.query(
@@ -518,8 +519,6 @@ class DatabaseService {
     return imageDir;
   }
 
-  /// Saves image bytes to the workspace image directory.
-  /// Returns the filename to store in card.content.
   Future<String> saveImage(Uint8List imageBytes, String originalName) async {
     final dir = await _getImageDir();
     final ext = originalName.contains('.')
@@ -531,7 +530,6 @@ class DatabaseService {
     return filename;
   }
 
-  /// Returns the full file path for a workspace image filename.
   Future<String?> getImagePath(String filename) async {
     final dir = await _getImageDir();
     final file = File('${dir.path}/$filename');
@@ -541,12 +539,118 @@ class DatabaseService {
     return null;
   }
 
-  /// Deletes a workspace image file.
   Future<void> deleteImage(String filename) async {
     final dir = await _getImageDir();
     final file = File('${dir.path}/$filename');
     if (await file.exists()) {
       await file.delete();
+    }
+  }
+
+  // --- Backup & Restore (Zip Packing) ---
+
+  Future<String> getExportDirectoryPath() async {
+    if (Platform.isAndroid) {
+      final dir = Directory('/storage/emulated/0/Download');
+      if (await dir.exists()) {
+        return dir.path;
+      }
+    }
+    final docDir = await getApplicationDocumentsDirectory();
+    return docDir.path;
+  }
+
+  Future<String> exportWorkspaceToZip(String workspaceName, String targetDirectoryPath) async {
+    final dir = await getWorkspaceDirectory();
+    final dbFile = File(join(dir.path, '$workspaceName.db'));
+    final imageDir = Directory(join(dir.path, '${workspaceName}_images'));
+
+    final archive = Archive();
+
+    // 1. Add DB file
+    if (await dbFile.exists()) {
+      final dbBytes = await dbFile.readAsBytes();
+      archive.addFile(ArchiveFile('database.db', dbBytes.length, dbBytes));
+    }
+
+    // 2. Add all image files recursively
+    if (await imageDir.exists()) {
+      final List<FileSystemEntity> entities = await imageDir.list(recursive: true).toList();
+      for (final entity in entities) {
+        if (entity is File) {
+          final relativePath = relative(entity.path, from: imageDir.path);
+          final bytes = await entity.readAsBytes();
+          archive.addFile(ArchiveFile('images/$relativePath', bytes.length, bytes));
+        }
+      }
+    }
+
+    final zipData = ZipEncoder().encode(archive);
+    if (zipData == null) {
+      throw Exception('Failed to encode zip archive');
+    }
+
+    final sanitizedName = workspaceName.replaceAll(RegExp(r'[^\w\s\-]'), '_');
+    final filename = 'Cero_Backup_$sanitizedName.zip';
+
+    try {
+      final targetPath = join(targetDirectoryPath, filename);
+      final zipFile = File(targetPath);
+      await zipFile.create(recursive: true);
+      await zipFile.writeAsBytes(zipData);
+      return targetPath;
+    } catch (e) {
+      debugPrint('Direct public Download write failed: $e. Saving to applicationScoped local storage.');
+      final docDir = await getApplicationDocumentsDirectory();
+      final fallbackPath = join(docDir.path, filename);
+      final fallbackFile = File(fallbackPath);
+      await fallbackFile.create(recursive: true);
+      await fallbackFile.writeAsBytes(zipData);
+      return fallbackPath;
+    }
+  }
+
+  Future<void> importWorkspaceFromZip(String sourceZipPath, String targetWorkspaceName) async {
+    final zipFile = File(sourceZipPath);
+    if (!await zipFile.exists()) {
+      throw Exception('Source zip file does not exist');
+    }
+
+    final bytes = await zipFile.readAsBytes();
+    final archive = ZipDecoder().decodeBytes(bytes);
+
+    final dir = await getWorkspaceDirectory();
+    final targetDbFile = File(join(dir.path, '$targetWorkspaceName.db'));
+    final targetImageDir = Directory(join(dir.path, '${targetWorkspaceName}_images'));
+
+    final isCurrent = currentWorkspaceName == targetWorkspaceName;
+    if (isCurrent && _db != null) {
+      await _db!.close();
+      _db = null;
+    }
+
+    if (await targetImageDir.exists()) {
+      await targetImageDir.delete(recursive: true);
+    }
+    await targetImageDir.create(recursive: true);
+
+    for (final file in archive) {
+      final filename = file.name;
+      if (file.isFile) {
+        final data = file.content as List<int>;
+        if (filename == 'database.db') {
+          await targetDbFile.writeAsBytes(data);
+        } else if (filename.startsWith('images/')) {
+          final relativePath = filename.substring('images/'.length);
+          final outFile = File(join(targetImageDir.path, relativePath));
+          await outFile.create(recursive: true);
+          await outFile.writeAsBytes(data);
+        }
+      }
+    }
+
+    if (isCurrent) {
+      await switchWorkspace(targetDbFile.path);
     }
   }
 }
