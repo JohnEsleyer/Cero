@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
 import 'services/server_service.dart';
 import 'models/page_model.dart';
+import 'models/card_model.dart' as models;
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -61,20 +62,24 @@ class _MainJournalScreenState extends State<MainJournalScreen> {
   // Selected page state
   DbPage? _selectedPage;
   bool _isEditing = false; // Toggle between Edit and Preview
-  
+
   // Navigation State
   final Set<String> _expandedPageIds = {};
   bool _showArchived = false;
   List<DbPage> _archivedPages = [];
   final List<String> _navigationHistory = []; // Stack for Back functionality
-  
+
   // Text Editing Controllers
   final TextEditingController _titleController = TextEditingController();
   final TextEditingController _contentController = TextEditingController();
   final FocusNode _contentFocusNode = FocusNode();
-  final FocusNode _titleFocusNode = FocusNode(); // Focus checking for title updates
+  final FocusNode _titleFocusNode = FocusNode();
 
-  // Debounce timer for save operations (task 4)
+  // Card state for current page
+  List<models.Card> _currentCards = [];
+  models.Card? _activeCard; // The markdown card being edited
+
+  // Debounce timer for save operations
   Timer? _saveDebounceTimer;
 
   final List<String> _curatedEmojis = [
@@ -104,31 +109,51 @@ class _MainJournalScreenState extends State<MainJournalScreen> {
   void _onServerStateChanged() {
     if (mounted) {
       setState(() {
-        // If the selected page was modified elsewhere, refresh its content
         if (_selectedPage != null) {
           final updatedPage = _serverService.pages.firstWhere(
             (p) => p.id == _selectedPage!.id,
             orElse: () => _selectedPage!,
           );
-          
-          // If page was archived from remote, close it
+
           if (!_serverService.pages.any((p) => p.id == _selectedPage!.id)) {
             _selectedPage = null;
             _isEditing = false;
             _navigationHistory.clear();
+            _currentCards = [];
+            _activeCard = null;
           } else if (updatedPage.revision > _selectedPage!.revision) {
             _selectedPage = updatedPage;
-            // Only update text controllers if user is not currently focusing either field
             if (!_contentFocusNode.hasFocus && !_titleFocusNode.hasFocus) {
               _titleController.text = updatedPage.title;
-              _contentController.text = updatedPage.content;
+              _loadCardsForPage(updatedPage.id);
             }
           }
         }
 
-        // Check for pending connections and show pairing dialog
         _checkPendingConnections();
       });
+    }
+  }
+
+  Future<void> _loadCardsForPage(String pageId) async {
+    try {
+      final cards = await _serverService.dbService.getCards(pageId);
+      setState(() {
+        _currentCards = cards;
+        _activeCard = cards.isNotEmpty
+            ? cards.firstWhere(
+                (c) => c.type == 'markdown',
+                orElse: () => cards.first,
+              )
+            : null;
+        if (_activeCard != null) {
+          _contentController.text = _activeCard!.content;
+        } else {
+          _contentController.text = '';
+        }
+      });
+    } catch (e) {
+      debugPrint('Error loading cards: $e');
     }
   }
 
@@ -182,9 +207,11 @@ class _MainJournalScreenState extends State<MainJournalScreen> {
     setState(() {
       _selectedPage = page;
       _titleController.text = page.title;
-      _contentController.text = page.content;
       _isEditing = false;
+      _currentCards = [];
+      _activeCard = null;
     });
+    _loadCardsForPage(page.id);
   }
 
   void _goBack() {
@@ -209,12 +236,20 @@ class _MainJournalScreenState extends State<MainJournalScreen> {
         ? 'Untitled'
         : _titleController.text.trim();
 
+    // Save page title/emoji
     _serverService.updatePage(
       id: _selectedPage!.id,
       title: newTitle,
-      content: _contentController.text,
       emoji: _selectedPage!.emoji,
     );
+
+    // Save active card content
+    if (_activeCard != null) {
+      _serverService.updateCard(
+        id: _activeCard!.id,
+        content: _contentController.text,
+      );
+    }
   }
 
   void _saveCurrentPage() {
@@ -233,18 +268,24 @@ class _MainJournalScreenState extends State<MainJournalScreen> {
     _flushPendingSave();
   }
 
-  void _createSubpage(String? parentId) async {
+  void _createSubpage(String? parentId, {String relationType = 'subpage'}) async {
     await _serverService.addPage(
       parentId: parentId,
+      relationType: relationType,
       title: 'New Page',
-      content: '# New Page\n\nStart writing markdown here...',
       emoji: '📝',
     );
-    
-    // Auto-select the newly created page
+
+    // Create the first markdown card for the new page
     final newPage = _serverService.pages.last;
+    await _serverService.addCard(
+      pageId: newPage.id,
+      type: 'markdown',
+      content: '# New Page\n\nStart writing markdown here...',
+    );
+
     _selectPage(newPage);
-    
+
     if (parentId != null) {
       setState(() {
         _expandedPageIds.add(parentId);
@@ -1027,7 +1068,7 @@ class _MainJournalScreenState extends State<MainJournalScreen> {
                         style: const TextStyle(fontWeight: FontWeight.bold),
                       ),
                       subtitle: Text(
-                        page.content.replaceAll(RegExp(r'[#*`\n]'), ' ').trim(),
+                        page.title,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: const TextStyle(color: Colors.grey),

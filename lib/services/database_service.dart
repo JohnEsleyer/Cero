@@ -2,86 +2,310 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:path/path.dart';
 import 'package:path_provider/path_provider.dart';
-import 'package:sqflite/sqflite.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import '../models/page_model.dart';
+import '../models/card_model.dart';
 
 class DatabaseService {
   Database? _db;
+  String? _currentWorkspacePath;
+
+  bool get isOpen => _db != null;
+
+  String get currentWorkspaceName {
+    if (_currentWorkspacePath == null) return '';
+    return basenameWithoutExtension(_currentWorkspacePath!);
+  }
+
+  String get currentWorkspacePath => _currentWorkspacePath ?? '';
 
   Future<Database> get database async {
     if (_db != null) return _db!;
-    _db = await _initDb();
-    return _db!;
+    throw StateError(
+      'No active workspace. Call switchWorkspace() or openDefaultWorkspace() first.',
+    );
   }
 
-  Future<Database> _initDb() async {
-    if (kIsWeb) {
-      throw UnsupportedError('SQLite not supported on Web in this demo.');
-    }
+  // --- Workspace Management ---
 
+  Future<Directory> getWorkspaceDirectory() async {
+    final appDir = await getApplicationDocumentsDirectory();
+    final dir = Directory(join(appDir.path, 'cero_workspaces'));
+    if (!await dir.exists()) {
+      await dir.create(recursive: true);
+    }
+    return dir;
+  }
+
+  Future<List<String>> listWorkspaces() async {
+    final dir = await getWorkspaceDirectory();
+    final files = await dir
+        .list()
+        .where((entity) => entity is File && entity.path.endsWith('.db'))
+        .map((file) => file.path)
+        .toList();
+    files.sort();
+    return files;
+  }
+
+  Future<void> switchWorkspace(String filePath) async {
+    if (_db != null) {
+      await _db!.close();
+      _db = null;
+    }
+    _currentWorkspacePath = filePath;
+    _db = await _openDatabase(filePath);
+  }
+
+  Future<void> openDefaultWorkspace() async {
+    final dir = await getWorkspaceDirectory();
+    final defaultPath = join(dir.path, 'Personal.db');
+    await switchWorkspace(defaultPath);
+  }
+
+  Future<void> createWorkspace(String name) async {
+    final dir = await getWorkspaceDirectory();
+    final path = join(dir.path, '$name.db');
+    if (await File(path).exists()) {
+      await switchWorkspace(path);
+      return;
+    }
+    await switchWorkspace(path);
+  }
+
+  Future<void> deleteWorkspace(String filePath) async {
+    if (_currentWorkspacePath == filePath) {
+      if (_db != null) {
+        await _db!.close();
+        _db = null;
+      }
+      _currentWorkspacePath = null;
+    }
+    final file = File(filePath);
+    if (await file.exists()) {
+      await file.delete();
+    }
+  }
+
+  // --- Database Initialization ---
+
+  void _initFfi() {
     if (Platform.isLinux || Platform.isWindows || Platform.isMacOS) {
-      // Initialize ffi for desktop platforms during dev/testing
       sqfliteFfiInit();
       databaseFactory = databaseFactoryFfi;
     }
+  }
 
-    final dbDirectory = await getApplicationDocumentsDirectory();
-    final dbPath = join(dbDirectory.path, 'cero_journal.db');
-    debugPrint('Database path: $dbPath');
+  Future<Database> _openDatabase(String dbPath) async {
+    _initFfi();
+    debugPrint('Opening workspace: $dbPath');
 
-    return await openDatabase(
+    final db = await openDatabase(
       dbPath,
-      version: 1,
-      onCreate: (db, version) async {
-        await db.execute('''
-          CREATE TABLE pages (
-            id TEXT PRIMARY KEY,
-            parent_id TEXT,
-            title TEXT NOT NULL,
-            content TEXT NOT NULL,
-            emoji TEXT NOT NULL,
-            created_at TEXT NOT NULL,
-            updated_at TEXT NOT NULL,
-            is_archived INTEGER NOT NULL DEFAULT 0,
-            sort_order INTEGER NOT NULL DEFAULT 0
-          )
-        ''');
-
-        // Insert some default welcome pages
-        final now = DateTime.now();
-        await db.insert('pages', {
-          'id': 'root-welcome',
-          'parent_id': null,
-          'title': 'Welcome to Cero 📓',
-          'content': '# Welcome to Cero!\n\nCero is your personal, offline-first nested markdown journal. \n\n### Core Features:\n- **Infinite Nesting**: Create pages inside pages inside pages.\n- **Sleek Notion Aesthetics**: Minimalist dark mode with emoji icons.\n- **Mobile-first Truth**: Your phone holds the database. Connecting from your laptop syncs editing in real time.\n\n*Click on the subpage below in the sidebar to explore more!*',
-          'emoji': '📓',
-          'created_at': now.toIso8601String(),
-          'updated_at': now.toIso8601String(),
-          'is_archived': 0,
-          'sort_order': 0,
-        });
-
-        await db.insert('pages', {
-          'id': 'child-journal-tips',
-          'parent_id': 'root-welcome',
-          'title': 'Journaling Tips',
-          'content': '# Journaling Tips 📝\n\nHere are some ideas to help you write daily in Cero:\n\n1. **Morning Dump**: Write 3 pages of stream-of-consciousness writing to clear your head.\n2. **Bullet Logs**: Keep a simple bullet list of things you accomplished today.\n3. **Gratitude**: List 3 things you are grateful for today.\n\nFeel free to modify this page or delete it!',
-          'emoji': '📝',
-          'created_at': now.subtract(const Duration(minutes: 5)).toIso8601String(),
-          'updated_at': now.toIso8601String(),
-          'is_archived': 0,
-          'sort_order': 0,
-        });
+      version: 2,
+      onCreate: _onCreate,
+      onUpgrade: _onUpgrade,
+      onConfigure: (db) async {
+        await db.execute('PRAGMA foreign_keys = ON');
       },
     );
+
+    await _migrateLegacyData(db);
+    return db;
   }
+
+  Future<void> _onCreate(Database db, int version) async {
+    await db.execute('''
+      CREATE TABLE pages (
+        id TEXT PRIMARY KEY,
+        parent_id TEXT,
+        relation_type TEXT NOT NULL DEFAULT 'subpage',
+        title TEXT NOT NULL,
+        emoji TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        is_archived INTEGER NOT NULL DEFAULT 0,
+        sort_order INTEGER NOT NULL DEFAULT 0,
+        revision INTEGER NOT NULL DEFAULT 0
+      )
+    ''');
+
+    await db.execute('''
+      CREATE TABLE cards (
+        id TEXT PRIMARY KEY,
+        page_id TEXT NOT NULL,
+        type TEXT NOT NULL,
+        content TEXT NOT NULL,
+        sort_order INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        revision INTEGER NOT NULL DEFAULT 0,
+        FOREIGN KEY (page_id) REFERENCES pages (id) ON DELETE CASCADE
+      )
+    ''');
+
+    // Insert default welcome pages
+    final now = DateTime.now();
+    await db.insert('pages', {
+      'id': 'root-welcome',
+      'parent_id': null,
+      'relation_type': 'subpage',
+      'title': 'Welcome to Cero',
+      'emoji': '📓',
+      'created_at': now.toIso8601String(),
+      'updated_at': now.toIso8601String(),
+      'is_archived': 0,
+      'sort_order': 0,
+      'revision': 0,
+    });
+
+    await db.insert('cards', {
+      'id': 'root-welcome-card-0',
+      'page_id': 'root-welcome',
+      'type': 'markdown',
+      'content': '# Welcome to Cero!\n\nCero is your personal, offline-first nested markdown journal.\n\n### Core Features:\n- **Infinite Nesting**: Create pages inside pages inside pages.\n- **Block Cards**: Each page is a column of markdown, image, and link cards.\n- **Multi-Workspace**: Switch between different `.db` workspace files.\n- **Sleek Notion Aesthetics**: Minimalist dark mode with emoji icons.\n- **Mobile-first Truth**: Your phone holds the database. Connecting from your laptop syncs editing in real time.\n\n*Click on the subpage below in the sidebar to explore more!*',
+      'sort_order': 0,
+      'created_at': now.toIso8601String(),
+      'updated_at': now.toIso8601String(),
+      'revision': 0,
+    });
+
+    await db.insert('pages', {
+      'id': 'child-journal-tips',
+      'parent_id': 'root-welcome',
+      'relation_type': 'subpage',
+      'title': 'Journaling Tips',
+      'emoji': '📝',
+      'created_at': now.subtract(const Duration(minutes: 5)).toIso8601String(),
+      'updated_at': now.toIso8601String(),
+      'is_archived': 0,
+      'sort_order': 0,
+      'revision': 0,
+    });
+
+    await db.insert('cards', {
+      'id': 'child-journal-tips-card-0',
+      'page_id': 'child-journal-tips',
+      'type': 'markdown',
+      'content': '# Journaling Tips 📝\n\nHere are some ideas to help you write daily in Cero:\n\n1. **Morning Dump**: Write 3 pages of stream-of-consciousness writing to clear your head.\n2. **Bullet Logs**: Keep a simple bullet list of things you accomplished today.\n3. **Gratitude**: List 3 things you are grateful for today.\n\nFeel free to modify this page or delete it!',
+      'sort_order': 0,
+      'created_at': now.subtract(const Duration(minutes: 5)).toIso8601String(),
+      'updated_at': now.toIso8601String(),
+      'revision': 0,
+    });
+  }
+
+  Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
+    if (oldVersion < 2) {
+      // Add relation_type column to pages
+      try {
+        await db.execute(
+          "ALTER TABLE pages ADD COLUMN relation_type TEXT NOT NULL DEFAULT 'subpage'",
+        );
+      } catch (_) {}
+
+      // Add revision column to pages if missing
+      try {
+        await db.execute(
+          'ALTER TABLE pages ADD COLUMN revision INTEGER NOT NULL DEFAULT 0',
+        );
+      } catch (_) {}
+
+      // Create cards table if missing
+      await db.execute('''
+        CREATE TABLE IF NOT EXISTS cards (
+          id TEXT PRIMARY KEY,
+          page_id TEXT NOT NULL,
+          type TEXT NOT NULL,
+          content TEXT NOT NULL,
+          sort_order INTEGER NOT NULL DEFAULT 0,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          revision INTEGER NOT NULL DEFAULT 0,
+          FOREIGN KEY (page_id) REFERENCES pages (id) ON DELETE CASCADE
+        )
+      ''');
+    }
+  }
+
+  // --- Legacy Migration ---
+
+  Future<void> _migrateLegacyData(Database db) async {
+    // Check if any pages still have 'content' column (v1 schema)
+    final tables = await db.rawQuery("SELECT name FROM sqlite_master WHERE type='table' AND name='pages'");
+    if (tables.isEmpty) return;
+
+    final columns = await db.rawQuery("PRAGMA table_info(pages)");
+    final hasContentCol = columns.any((c) => c['name'] == 'content');
+
+    if (!hasContentCol) return; // Already migrated
+
+    debugPrint('Migrating legacy data: content column → cards table');
+
+    final legacyPages = await db.query('pages');
+    for (var legacy in legacyPages) {
+      final pageId = legacy['id'] as String;
+      final content = legacy['content'] as String?;
+
+      if (content != null && content.trim().isNotEmpty) {
+        final existingCards = await db.query(
+          'cards',
+          where: 'page_id = ?',
+          whereArgs: [pageId],
+        );
+        if (existingCards.isEmpty) {
+          await db.insert('cards', {
+            'id': '$pageId-card-0',
+            'page_id': pageId,
+            'type': 'markdown',
+            'content': content,
+            'sort_order': 0,
+            'created_at': legacy['created_at'],
+            'updated_at': legacy['updated_at'],
+            'revision': 0,
+          });
+        }
+      }
+    }
+
+    // Drop the old content column
+    try {
+      await db.execute('ALTER TABLE pages DROP COLUMN content');
+      debugPrint('Dropped legacy content column');
+    } catch (e) {
+      debugPrint('Could not drop content column (may not be supported): $e');
+    }
+  }
+
+  // --- Page CRUD ---
 
   Future<List<DbPage>> getAllPages() async {
     final db = await database;
     final List<Map<String, dynamic>> maps = await db.query(
       'pages',
       where: 'is_archived = 0',
+      orderBy: 'sort_order ASC, created_at DESC',
+    );
+    return List.generate(maps.length, (i) => DbPage.fromMap(maps[i]));
+  }
+
+  Future<List<DbPage>> getSubpages(String? parentId) async {
+    final db = await database;
+    final List<Map<String, dynamic>> maps = await db.query(
+      'pages',
+      where: 'parent_id ${parentId == null ? 'IS NULL' : '= ?'} AND relation_type = ? AND is_archived = 0',
+      whereArgs: parentId == null ? ['subpage'] : [parentId, 'subpage'],
+      orderBy: 'sort_order ASC, created_at DESC',
+    );
+    return List.generate(maps.length, (i) => DbPage.fromMap(maps[i]));
+  }
+
+  Future<List<DbPage>> getSidePages(String parentId) async {
+    final db = await database;
+    final List<Map<String, dynamic>> maps = await db.query(
+      'pages',
+      where: 'parent_id = ? AND relation_type = ? AND is_archived = 0',
+      whereArgs: [parentId, 'sidepage'],
       orderBy: 'sort_order ASC, created_at DESC',
     );
     return List.generate(maps.length, (i) => DbPage.fromMap(maps[i]));
@@ -114,7 +338,6 @@ class DatabaseService {
   }
 
   Future<void> _archivePageAndChildrenTxn(Transaction txn, String id) async {
-    // 1. Find all children
     final List<Map<String, dynamic>> children = await txn.query(
       'pages',
       columns: ['id'],
@@ -122,13 +345,11 @@ class DatabaseService {
       whereArgs: [id],
     );
 
-    // 2. Recursively archive children
     for (var child in children) {
       final childId = child['id'] as String;
       await _archivePageAndChildrenTxn(txn, childId);
     }
 
-    // 3. Archive the page itself (soft delete)
     await txn.update(
       'pages',
       {'is_archived': 1},
@@ -145,7 +366,6 @@ class DatabaseService {
   }
 
   Future<void> _restorePageAndChildrenTxn(Transaction txn, String id) async {
-    // 1. Find all children (also archived)
     final List<Map<String, dynamic>> children = await txn.query(
       'pages',
       columns: ['id'],
@@ -153,13 +373,11 @@ class DatabaseService {
       whereArgs: [id],
     );
 
-    // 2. Recursively restore children
     for (var child in children) {
       final childId = child['id'] as String;
       await _restorePageAndChildrenTxn(txn, childId);
     }
 
-    // 3. Restore the page itself
     await txn.update(
       'pages',
       {'is_archived': 0},
@@ -186,6 +404,9 @@ class DatabaseService {
   }
 
   Future<void> _hardDeletePageAndChildrenTxn(Transaction txn, String id) async {
+    // Delete cards for this page first
+    await txn.delete('cards', where: 'page_id = ?', whereArgs: [id]);
+
     final List<Map<String, dynamic>> children = await txn.query(
       'pages',
       columns: ['id'],
@@ -198,15 +419,90 @@ class DatabaseService {
       await _hardDeletePageAndChildrenTxn(txn, childId);
     }
 
-    await txn.delete(
-      'pages',
-      where: 'id = ?',
-      whereArgs: [id],
-    );
+    await txn.delete('pages', where: 'id = ?', whereArgs: [id]);
   }
 
   Future<void> clearAll() async {
     final db = await database;
+    await db.delete('cards');
     await db.delete('pages');
+  }
+
+  // --- Card CRUD ---
+
+  Future<List<Card>> getCards(String pageId) async {
+    final db = await database;
+    final List<Map<String, dynamic>> maps = await db.query(
+      'cards',
+      where: 'page_id = ?',
+      whereArgs: [pageId],
+      orderBy: 'sort_order ASC',
+    );
+    return List.generate(maps.length, (i) => Card.fromMap(maps[i]));
+  }
+
+  Future<Card?> getCard(String cardId) async {
+    final db = await database;
+    final List<Map<String, dynamic>> maps = await db.query(
+      'cards',
+      where: 'id = ?',
+      whereArgs: [cardId],
+      limit: 1,
+    );
+    if (maps.isEmpty) return null;
+    return Card.fromMap(maps.first);
+  }
+
+  Future<void> insertCard(Card card) async {
+    final db = await database;
+    await db.insert(
+      'cards',
+      card.toMap(),
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  Future<void> updateCard(Card card) async {
+    final db = await database;
+    await db.update(
+      'cards',
+      card.toMap(),
+      where: 'id = ?',
+      whereArgs: [card.id],
+    );
+  }
+
+  Future<void> deleteCard(String cardId) async {
+    final db = await database;
+    await db.delete('cards', where: 'id = ?', whereArgs: [cardId]);
+  }
+
+  Future<void> deleteCardsForPage(String pageId) async {
+    final db = await database;
+    await db.delete('cards', where: 'page_id = ?', whereArgs: [pageId]);
+  }
+
+  Future<void> reorderCards(String pageId, List<String> cardIds) async {
+    final db = await database;
+    await db.transaction((txn) async {
+      for (int i = 0; i < cardIds.length; i++) {
+        await txn.update(
+          'cards',
+          {'sort_order': i},
+          where: 'id = ? AND page_id = ?',
+          whereArgs: [cardIds[i], pageId],
+        );
+      }
+    });
+  }
+
+  Future<void> updateCardSortOrder(String cardId, int newOrder) async {
+    final db = await database;
+    await db.update(
+      'cards',
+      {'sort_order': newOrder},
+      where: 'id = ?',
+      whereArgs: [cardId],
+    );
   }
 }

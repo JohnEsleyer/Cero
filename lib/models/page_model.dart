@@ -3,8 +3,8 @@ import 'dart:convert';
 class DbPage {
   final String id;
   final String? parentId;
+  final String relationType; // 'subpage' or 'sidepage'
   final String title;
-  final String content;
   final String emoji;
   final DateTime createdAt;
   final DateTime updatedAt;
@@ -15,8 +15,8 @@ class DbPage {
   DbPage({
     required this.id,
     this.parentId,
+    this.relationType = 'subpage',
     required this.title,
-    required this.content,
     required this.emoji,
     required this.createdAt,
     required this.updatedAt,
@@ -29,8 +29,8 @@ class DbPage {
     return {
       'id': id,
       'parent_id': parentId,
+      'relation_type': relationType,
       'title': title,
-      'content': content,
       'emoji': emoji,
       'created_at': createdAt.toIso8601String(),
       'updated_at': updatedAt.toIso8601String(),
@@ -45,14 +45,14 @@ class DbPage {
     return DbPage(
       id: map['id'] ?? '',
       parentId: (parentVal == null || parentVal == '') ? null : parentVal,
+      relationType: map['relation_type'] ?? 'subpage',
       title: map['title'] ?? '',
-      content: map['content'] ?? '',
       emoji: map['emoji'] ?? '📓',
-      createdAt: map['created_at'] != null 
-          ? DateTime.parse(map['created_at']) 
+      createdAt: map['created_at'] != null
+          ? DateTime.parse(map['created_at'])
           : DateTime.now(),
-      updatedAt: map['updated_at'] != null 
-          ? DateTime.parse(map['updated_at']) 
+      updatedAt: map['updated_at'] != null
+          ? DateTime.parse(map['updated_at'])
           : DateTime.now(),
       isArchived: (map['is_archived'] ?? 0) == 1,
       sortOrder: map['sort_order'] ?? 0,
@@ -67,8 +67,8 @@ class DbPage {
   DbPage copyWith({
     String? id,
     String? parentId,
+    String? relationType,
     String? title,
-    String? content,
     String? emoji,
     DateTime? createdAt,
     DateTime? updatedAt,
@@ -79,8 +79,8 @@ class DbPage {
     return DbPage(
       id: id ?? this.id,
       parentId: parentId ?? this.parentId,
+      relationType: relationType ?? this.relationType,
       title: title ?? this.title,
-      content: content ?? this.content,
       emoji: emoji ?? this.emoji,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,

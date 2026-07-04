@@ -4,6 +4,7 @@ import 'dart:io';
 import 'dart:math';
 import 'package:flutter/foundation.dart';
 import '../models/page_model.dart';
+import '../models/card_model.dart';
 import 'database_service.dart';
 
 class ClientConnection {
@@ -25,13 +26,13 @@ class ServerService extends ChangeNotifier {
   HttpServer? _httpServer;
   RawDatagramSocket? _udpSocket;
   Timer? _udpBroadcastTimer;
-  
+
   bool _isRunning = false;
   String _localIp = 'Unknown';
   final int _wsPort = 9090;
   final int _udpPort = 9100;
   static const String _multicastAddr = '239.255.255.250';
-  
+
   String _authPin = '';
   String get authPin => _authPin;
 
@@ -45,9 +46,12 @@ class ServerService extends ChangeNotifier {
   List<ClientConnection> get clients => _clients;
   List<PendingConnection> get pendingConnections => _pendingConnections;
   List<DbPage> get pages => _pages;
+  DatabaseService get dbService => _dbService;
 
-  // Initialize service, fetch local IP, and load initial database state
+  // --- Initialization ---
+
   Future<void> init() async {
+    await _dbService.openDefaultWorkspace();
     await updateLocalIp();
     await loadDatabaseState();
   }
@@ -67,7 +71,7 @@ class ServerService extends ChangeNotifier {
         includeLoopback: false,
         type: InternetAddressType.IPv4,
       );
-      
+
       if (interfaces.isNotEmpty) {
         for (var interface in interfaces) {
           for (var addr in interface.addresses) {
@@ -89,7 +93,24 @@ class ServerService extends ChangeNotifier {
     notifyListeners();
   }
 
-  // Start the server (WebSocket + UDP broadcast)
+  // --- Workspace Management ---
+
+  Future<void> switchWorkspace(String filePath) async {
+    await _dbService.switchWorkspace(filePath);
+    await loadDatabaseState();
+    _broadcastToAllClients({
+      'type': 'workspace_status',
+      'activeWorkspace': _dbService.currentWorkspaceName,
+    });
+    notifyListeners();
+  }
+
+  Future<List<String>> listWorkspaces() async {
+    return await _dbService.listWorkspaces();
+  }
+
+  // --- Server Lifecycle ---
+
   Future<bool> startServer() async {
     if (_isRunning) return true;
 
@@ -97,13 +118,11 @@ class ServerService extends ChangeNotifier {
       await updateLocalIp();
       await loadDatabaseState();
 
-      // 1. Start HTTP Server for WebSockets
       _httpServer = await HttpServer.bind(InternetAddress.anyIPv4, _wsPort);
       debugPrint('Cero Sync Server listening on $_localIp:$_wsPort');
 
       _httpServer!.listen((HttpRequest request) {
         if (request.uri.path == '/ws') {
-          // Validate auth PIN from query parameter
           final pin = request.uri.queryParameters['pin'] ?? '';
           if (pin != _authPin) {
             request.response
@@ -128,17 +147,13 @@ class ServerService extends ChangeNotifier {
         }
       });
 
-      // 2. Generate auth PIN
       _authPin = _generatePin();
 
-      // 3. Start UDP multicast socket
       _udpSocket = await RawDatagramSocket.bind(InternetAddress.anyIPv4, 0);
       _udpSocket!.broadcastEnabled = true;
-      // Join multicast group for better router traversal
       _udpSocket!.joinMulticast(InternetAddress(_multicastAddr));
       debugPrint('UDP Multicast socket bound on $_multicastAddr');
 
-      // Start periodic broadcast every 2 seconds
       _udpBroadcastTimer = Timer.periodic(const Duration(seconds: 2), (timer) {
         _broadcastDiscoveryBeacon();
       });
@@ -153,7 +168,6 @@ class ServerService extends ChangeNotifier {
     }
   }
 
-  // Stop the server
   Future<void> stopServer() async {
     _udpBroadcastTimer?.cancel();
     _udpBroadcastTimer = null;
@@ -177,55 +191,52 @@ class ServerService extends ChangeNotifier {
     notifyListeners();
   }
 
-  // Broadcast discovery beacon over UDP
+  // --- UDP Discovery ---
+
   void _broadcastDiscoveryBeacon() {
     if (_udpSocket == null) return;
-    
+
     try {
       final beaconData = {
         'app': 'cero-journal',
         'port': _wsPort,
         'ip': _localIp,
-        'deviceName': Platform.isAndroid 
-            ? 'Android Phone' 
-            : Platform.isIOS 
-                ? 'iPhone' 
+        'deviceName': Platform.isAndroid
+            ? 'Android Phone'
+            : Platform.isIOS
+                ? 'iPhone'
                 : 'Cero Mobile Server (${Platform.operatingSystem})',
       };
-      
+
       final String payload = jsonEncode(beaconData);
       final List<int> dataToSend = utf8.encode(payload);
-      
+
       _udpSocket!.send(dataToSend, InternetAddress(_multicastAddr), _udpPort);
-      // Also send to broadcast address for legacy support
       _udpSocket!.send(dataToSend, InternetAddress('255.255.255.255'), _udpPort);
     } catch (e) {
       debugPrint('UDP broadcast error: $e');
     }
   }
 
-  // Handle a new WebSocket connection
+  // --- WebSocket Client Handling ---
+
   void _handleNewClient(WebSocket socket, String remoteAddress) {
     debugPrint('New connection from $remoteAddress');
 
-    // Send pairing request first
     final pairMsg = {
       'type': 'pairing_required',
       'remoteAddress': remoteAddress,
     };
     socket.add(jsonEncode(pairMsg));
 
-    // Add to pending connections
     final completer = Completer<bool>();
     final pending = PendingConnection(socket, remoteAddress, completer);
     _pendingConnections.add(pending);
     notifyListeners();
     debugPrint('Pending pairing from: $remoteAddress');
 
-    // Attach listener immediately to avoid losing messages
     socket.listen(
       (message) {
-        // Only process messages if client has been approved
         if (pending.completer.isCompleted) {
           _handleIncomingMessage(socket, message);
         } else {
@@ -246,14 +257,12 @@ class ServerService extends ChangeNotifier {
       },
     );
 
-    // Wait for approval via completer
     completer.future.then((approved) {
       _pendingConnections.remove(pending);
       _handleApprovedClient(socket, remoteAddress, approved);
     });
   }
 
-  // After pairing approval
   void _handleApprovedClient(WebSocket socket, String remoteAddress, bool approved) {
     if (!approved) {
       try {
@@ -271,15 +280,15 @@ class ServerService extends ChangeNotifier {
     notifyListeners();
     debugPrint('Desktop connected (approved): $remoteAddress');
 
-    // Send pairing accepted
     final acceptMsg = {'type': 'pairing_accepted'};
     socket.add(jsonEncode(acceptMsg));
 
-    // Send metadata-only sync to build the navigation tree
+    // Send workspace status
+    _sendWorkspaceStatus(socket);
+    // Send metadata-only sync
     _syncMetadataToClient(socket);
   }
 
-  // Approve or reject a pending connection
   Future<void> approvePendingClient(int index) async {
     if (index < 0 || index >= _pendingConnections.length) return;
     _pendingConnections[index].completer.complete(true);
@@ -290,7 +299,8 @@ class ServerService extends ChangeNotifier {
     _pendingConnections[index].completer.complete(false);
   }
 
-  // Parse and process incoming commands from clients
+  // --- Incoming Message Router ---
+
   void _handleIncomingMessage(WebSocket sender, dynamic message) async {
     if (message is! String) return;
 
@@ -299,6 +309,7 @@ class ServerService extends ChangeNotifier {
       final String type = data['type'] ?? '';
 
       switch (type) {
+        // Page operations
         case 'add':
           if (data['item'] != null) {
             final newPage = DbPage.fromMap(data['item']);
@@ -312,29 +323,13 @@ class ServerService extends ChangeNotifier {
           }
           break;
         case 'delete':
-          // Legacy support - treat as archive
-          final String id = data['id'] ?? '';
-          if (id.isNotEmpty) {
-            await _archiveItem(id, fromRemote: true);
-          }
-          break;
         case 'archive':
           final String id = data['id'] ?? '';
-          if (id.isNotEmpty) {
-            await _archiveItem(id, fromRemote: true);
-          }
+          if (id.isNotEmpty) await _archiveItem(id, fromRemote: true);
           break;
         case 'restore':
           final String id = data['id'] ?? '';
-          if (id.isNotEmpty) {
-            await _restoreItem(id, fromRemote: true);
-          }
-          break;
-        case 'fetch':
-          final String fetchId = data['id'] ?? '';
-          if (fetchId.isNotEmpty) {
-            await _sendPageContent(sender, fetchId);
-          }
+          if (id.isNotEmpty) await _restoreItem(id, fromRemote: true);
           break;
         case 'move':
           final String moveId = data['id'] ?? '';
@@ -343,6 +338,42 @@ class ServerService extends ChangeNotifier {
             await _moveItem(moveId, newParentId.isEmpty ? null : newParentId, fromRemote: true);
           }
           break;
+
+        // Card operations
+        case 'fetch_cards':
+          final String pageId = data['page_id'] ?? '';
+          if (pageId.isNotEmpty) await _sendCardsToClient(sender, pageId);
+          break;
+        case 'add_card':
+          if (data['item'] != null) {
+            final card = Card.fromMap(data['item']);
+            await _addCard(card, fromRemote: true);
+          }
+          break;
+        case 'update_card':
+          if (data['item'] != null) {
+            final card = Card.fromMap(data['item']);
+            await _updateCard(card, fromRemote: true);
+          }
+          break;
+        case 'delete_card':
+          final String cardId = data['id'] ?? '';
+          if (cardId.isNotEmpty) await _deleteCard(cardId, fromRemote: true);
+          break;
+        case 'reorder_cards':
+          final String pageId = data['page_id'] ?? '';
+          final List<String> order = List<String>.from(data['order'] ?? []);
+          if (pageId.isNotEmpty && order.isNotEmpty) {
+            await _reorderCards(pageId, order, fromRemote: true);
+          }
+          break;
+
+        // Workspace operations
+        case 'switch_workspace':
+          final String wsName = data['workspaceName'] ?? '';
+          if (wsName.isNotEmpty) await _handleSwitchWorkspace(wsName);
+          break;
+
         default:
           debugPrint('Unknown message type: $type');
       }
@@ -351,18 +382,50 @@ class ServerService extends ChangeNotifier {
     }
   }
 
-  // Generate random 4-digit auth PIN
+  // --- Helpers ---
+
   String _generatePin() {
     final random = Random.secure();
     return '${1000 + random.nextInt(9000)}';
   }
 
-  // Sync metadata only (no content) to quickly build navigation tree
+  static String generateId() {
+    final random = Random.secure();
+    const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
+    return List.generate(16, (index) => chars[random.nextInt(chars.length)]).join();
+  }
+
+  void _broadcastToAllClients(Map<String, dynamic> messageMap) {
+    final messageJson = jsonEncode(messageMap);
+    for (var client in _clients) {
+      try {
+        client.socket.add(messageJson);
+      } catch (e) {
+        debugPrint('Error sending message to client: $e');
+      }
+    }
+  }
+
+  // --- Sync Methods ---
+
+  void _sendWorkspaceStatus(WebSocket socket) {
+    try {
+      final msg = {
+        'type': 'workspace_status',
+        'activeWorkspace': _dbService.currentWorkspaceName,
+      };
+      socket.add(jsonEncode(msg));
+    } catch (e) {
+      debugPrint('Error sending workspace status: $e');
+    }
+  }
+
   void _syncMetadataToClient(WebSocket socket) {
     try {
       final metaData = _pages.map((page) => {
         'id': page.id,
         'parent_id': page.parentId,
+        'relation_type': page.relationType,
         'title': page.title,
         'emoji': page.emoji,
         'created_at': page.createdAt.toIso8601String(),
@@ -382,63 +445,33 @@ class ServerService extends ChangeNotifier {
     }
   }
 
-  // Sync entire database to a specific client (full content)
-  void _syncDbStateToClient(WebSocket socket) {
+  Future<void> _sendCardsToClient(WebSocket socket, String pageId) async {
     try {
-      final syncMessage = {
-        'type': 'sync',
-        'data': _pages.map((page) => page.toMap()).toList(),
+      final cards = await _dbService.getCards(pageId);
+      final msg = {
+        'type': 'sync_cards',
+        'page_id': pageId,
+        'cards': cards.map((c) => c.toMap()).toList(),
       };
-      socket.add(jsonEncode(syncMessage));
+      socket.add(jsonEncode(msg));
     } catch (e) {
-      debugPrint('Error syncing database state: $e');
+      debugPrint('Error sending cards to client: $e');
     }
   }
 
-  // Fetch full content for a specific page
-  Future<void> _sendPageContent(WebSocket socket, String pageId) async {
-    try {
-      final page = _pages.firstWhere((p) => p.id == pageId, orElse: () => _pages.isNotEmpty ? _pages.first : DbPage(id: '', parentId: null, title: '', content: '', emoji: '', createdAt: DateTime.now(), updatedAt: DateTime.now()));
-      if (page.id.isEmpty) return;
-      
-      final contentMsg = {
-        'type': 'content',
-        'id': page.id,
-        'content': page.content,
-      };
-      socket.add(jsonEncode(contentMsg));
-    } catch (e) {
-      debugPrint('Error fetching page content: $e');
-    }
-  }
+  // --- Page Action Handlers ---
 
-  // Broadcast database update to all clients
-  void _broadcastToAllClients(Map<String, dynamic> messageMap) {
-    final messageJson = jsonEncode(messageMap);
-    for (var client in _clients) {
-      try {
-        client.socket.add(messageJson);
-      } catch (e) {
-        debugPrint('Error sending message to client: $e');
-      }
-    }
-  }
-
-  // Generate unique alphanumeric string as ID
-  static String generateId() {
-    final random = Random.secure();
-    const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
-    return List.generate(16, (index) => chars[random.nextInt(chars.length)]).join();
-  }
-
-  // --- Database Action Handlers ---
-
-  Future<void> addPage({String? parentId, required String title, required String content, required String emoji}) async {
+  Future<void> addPage({
+    String? parentId,
+    String relationType = 'subpage',
+    required String title,
+    required String emoji,
+  }) async {
     final newPage = DbPage(
       id: generateId(),
       parentId: parentId,
+      relationType: relationType,
       title: title,
-      content: content,
       emoji: emoji,
       createdAt: DateTime.now(),
       updatedAt: DateTime.now(),
@@ -448,14 +481,12 @@ class ServerService extends ChangeNotifier {
 
   Future<void> _addItem(DbPage page, {required bool fromRemote}) async {
     if (_pages.any((p) => p.id == page.id)) return;
-    
-    // Save to SQLite
+
     try {
       await _dbService.insertPage(page);
       _pages.add(page);
       notifyListeners();
 
-      // Broadcast add to all clients (include content since it's a new page)
       _broadcastToAllClients({
         'type': 'add',
         'item': page.toMap(),
@@ -465,12 +496,15 @@ class ServerService extends ChangeNotifier {
     }
   }
 
-  Future<void> updatePage({required String id, required String title, required String content, required String emoji}) async {
+  Future<void> updatePage({
+    required String id,
+    required String title,
+    required String emoji,
+  }) async {
     final index = _pages.indexWhere((p) => p.id == id);
     if (index != -1) {
       final updatedPage = _pages[index].copyWith(
         title: title,
-        content: content,
         emoji: emoji,
         updatedAt: DateTime.now(),
         revision: _pages[index].revision + 1,
@@ -482,7 +516,6 @@ class ServerService extends ChangeNotifier {
   Future<void> _updateItem(DbPage page, {required bool fromRemote}) async {
     final index = _pages.indexWhere((p) => p.id == page.id);
     if (index != -1) {
-      // Reject stale updates from remote when revision is explicitly provided
       if (fromRemote &&
           page.revision > 0 &&
           page.revision < _pages[index].revision) {
@@ -497,12 +530,10 @@ class ServerService extends ChangeNotifier {
               : _pages[index].revision + 1,
         );
 
-        // Save to SQLite
         await _dbService.updatePage(updatedPage);
         _pages[index] = updatedPage;
         notifyListeners();
 
-        // Broadcast update to all clients
         _broadcastToAllClients({
           'type': 'update',
           'item': updatedPage.toMap(),
@@ -519,13 +550,9 @@ class ServerService extends ChangeNotifier {
 
   Future<void> _archiveItem(String id, {required bool fromRemote}) async {
     try {
-      // 1. Soft-delete recursively in SQLite
       await _dbService.archivePageRecursive(id);
-      
-      // 2. Reload database state
       await loadDatabaseState();
 
-      // 3. Broadcast archive event to all clients
       _broadcastToAllClients({
         'type': 'archive',
         'id': id,
@@ -596,6 +623,113 @@ class ServerService extends ChangeNotifier {
       });
     } catch (e) {
       debugPrint('Error permanently deleting page: $e');
+    }
+  }
+
+  // --- Card Action Handlers ---
+
+  Future<void> addCard({
+    required String pageId,
+    required String type,
+    required String content,
+  }) async {
+    final cards = await _dbService.getCards(pageId);
+    final maxOrder = cards.isEmpty ? 0 : cards.map((c) => c.sortOrder).reduce((a, b) => a > b ? a : b) + 1;
+
+    final card = Card(
+      id: generateId(),
+      pageId: pageId,
+      type: type,
+      content: content,
+      sortOrder: maxOrder,
+      createdAt: DateTime.now(),
+      updatedAt: DateTime.now(),
+    );
+    await _addCard(card, fromRemote: false);
+  }
+
+  Future<void> _addCard(Card card, {required bool fromRemote}) async {
+    try {
+      await _dbService.insertCard(card);
+
+      _broadcastToAllClients({
+        'type': 'add_card',
+        'item': card.toMap(),
+      });
+    } catch (e) {
+      debugPrint('Error inserting card: $e');
+    }
+  }
+
+  Future<void> updateCard({
+    required String id,
+    required String content,
+  }) async {
+    final card = await _dbService.getCard(id);
+    if (card == null) return;
+
+    final updated = card.copyWith(
+      content: content,
+      updatedAt: DateTime.now(),
+      revision: card.revision + 1,
+    );
+    await _updateCard(updated, fromRemote: false);
+  }
+
+  Future<void> _updateCard(Card card, {required bool fromRemote}) async {
+    try {
+      await _dbService.updateCard(card);
+
+      _broadcastToAllClients({
+        'type': 'update_card',
+        'item': card.toMap(),
+      });
+    } catch (e) {
+      debugPrint('Error updating card: $e');
+    }
+  }
+
+  Future<void> deleteCard(String cardId) async {
+    await _deleteCard(cardId, fromRemote: false);
+  }
+
+  Future<void> _deleteCard(String cardId, {required bool fromRemote}) async {
+    try {
+      await _dbService.deleteCard(cardId);
+
+      _broadcastToAllClients({
+        'type': 'delete_card',
+        'id': cardId,
+      });
+    } catch (e) {
+      debugPrint('Error deleting card: $e');
+    }
+  }
+
+  Future<void> _reorderCards(String pageId, List<String> cardIds, {required bool fromRemote}) async {
+    try {
+      await _dbService.reorderCards(pageId, cardIds);
+
+      _broadcastToAllClients({
+        'type': 'reorder_cards',
+        'page_id': pageId,
+        'order': cardIds,
+      });
+    } catch (e) {
+      debugPrint('Error reordering cards: $e');
+    }
+  }
+
+  // --- Workspace Handler ---
+
+  Future<void> _handleSwitchWorkspace(String workspaceName) async {
+    final workspaces = await _dbService.listWorkspaces();
+    final match = workspaces.firstWhere(
+      (path) => path.endsWith('$workspaceName.db'),
+      orElse: () => '',
+    );
+    if (match.isNotEmpty) {
+      await switchWorkspace(match);
     }
   }
 }
