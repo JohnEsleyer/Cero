@@ -1,3 +1,4 @@
+
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
@@ -29,6 +30,11 @@ class _SitesCardState extends State<SitesCard> {
   String _description = 'Sandboxed HTML preview widget';
   String _html = '';
 
+  // Background Live serving variables
+  HttpServer? _backgroundServer;
+  String? _backgroundServerUrl;
+  bool _isLive = false;
+
   @override
   void initState() {
     super.initState();
@@ -38,10 +44,15 @@ class _SitesCardState extends State<SitesCard> {
   @override
   void didUpdateWidget(SitesCard oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.card.id != widget.card.id ||
-        oldWidget.card.content != widget.card.content) {
+    if (oldWidget.card.id != widget.card.id || oldWidget.card.content != widget.card.content) {
       _parseContent();
     }
+  }
+
+  @override
+  void dispose() {
+    _stopBackgroundServer();
+    super.dispose();
   }
 
   void _parseContent() {
@@ -64,6 +75,40 @@ class _SitesCardState extends State<SitesCard> {
       'html': html,
     });
     widget.onContentChanged(combined);
+  }
+
+  Future<void> _startBackgroundServer() async {
+    if (_backgroundServer != null) {
+      await _stopBackgroundServer();
+    }
+    try {
+      _backgroundServer = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      final port = _backgroundServer!.port;
+      setState(() {
+        _backgroundServerUrl = 'http://127.0.0.1:$port';
+        _isLive = true;
+      });
+
+      _backgroundServer!.listen((HttpRequest request) {
+        request.response
+          ..headers.contentType = ContentType.html
+          ..write(_html)
+          ..close();
+      });
+    } catch (e) {
+      debugPrint('Error starting card background server: $e');
+    }
+  }
+
+  Future<void> _stopBackgroundServer() async {
+    if (_backgroundServer != null) {
+      await _backgroundServer!.close(force: true);
+      _backgroundServer = null;
+      setState(() {
+        _backgroundServerUrl = null;
+        _isLive = false;
+      });
+    }
   }
 
   void _openSandboxWorkspace() {
@@ -116,10 +161,27 @@ class _SitesCardState extends State<SitesCard> {
                       color: const Color(0xFF818CF8).withOpacity(0.1),
                       borderRadius: BorderRadius.circular(6),
                     ),
-                    child: const Icon(
-                      Icons.web,
-                      color: Color(0xFF818CF8),
-                      size: 24,
+                    child: Stack(
+                      alignment: Alignment.center,
+                      children: [
+                        const Icon(
+                          Icons.web,
+                          color: Color(0xFF818CF8),
+                          size: 24,
+                        ),
+                        Positioned(
+                          top: 4,
+                          right: 4,
+                          child: Container(
+                            width: 8,
+                            height: 8,
+                            decoration: BoxDecoration(
+                              color: _isLive ? Colors.green : Colors.redAccent,
+                              shape: BoxShape.circle,
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                   const SizedBox(width: 12),
@@ -127,22 +189,43 @@ class _SitesCardState extends State<SitesCard> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(
-                          _name,
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 14,
-                            fontWeight: FontWeight.bold,
-                          ),
+                        Row(
+                          children: [
+                            Text(
+                              _name,
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 14,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                              decoration: BoxDecoration(
+                                color: _isLive ? Colors.green.withOpacity(0.1) : Colors.redAccent.withOpacity(0.1),
+                                borderRadius: BorderRadius.circular(4),
+                              ),
+                              child: Text(
+                                _isLive ? "LIVE" : "STOPPED",
+                                style: TextStyle(
+                                  color: _isLive ? Colors.green : Colors.redAccent,
+                                  fontSize: 8,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ),
+                          ],
                         ),
                         const SizedBox(height: 2),
                         Text(
-                          _description,
+                          _isLive && _backgroundServerUrl != null ? _backgroundServerUrl! : _description,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            color: Color(0xFF64748B),
+                          style: TextStyle(
+                            color: _isLive ? const Color(0xFF818CF8) : const Color(0xFF64748B),
                             fontSize: 12,
+                            fontFamily: _isLive ? 'monospace' : null,
                           ),
                         ),
                       ],
@@ -195,6 +278,21 @@ class _SitesCardState extends State<SitesCard> {
             ),
           ),
           const Spacer(),
+          // Play/Stop toggle button
+          IconButton(
+            icon: Icon(_isLive ? Icons.stop : Icons.play_arrow, size: 16),
+            color: _isLive ? Colors.redAccent : Colors.greenAccent,
+            padding: const EdgeInsets.all(2),
+            constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
+            onPressed: () {
+              if (_isLive) {
+                _stopBackgroundServer();
+              } else {
+                _startBackgroundServer();
+              }
+            },
+            tooltip: _isLive ? 'Stop serving local address' : 'Serve local address',
+          ),
           if (widget.onMoveUp != null)
             _actionBtn(Icons.arrow_upward, widget.onMoveUp!),
           if (widget.onMoveDown != null)
