@@ -66,11 +66,13 @@ class _MainJournalScreenState extends State<MainJournalScreen> {
   final Set<String> _expandedPageIds = {};
   bool _showArchived = false;
   List<DbPage> _archivedPages = [];
+  final List<String> _navigationHistory = []; // Stack for Back functionality
   
   // Text Editing Controllers
   final TextEditingController _titleController = TextEditingController();
   final TextEditingController _contentController = TextEditingController();
   final FocusNode _contentFocusNode = FocusNode();
+  final FocusNode _titleFocusNode = FocusNode(); // Focus checking for title updates
 
   // Debounce timer for save operations (task 4)
   Timer? _saveDebounceTimer;
@@ -94,6 +96,7 @@ class _MainJournalScreenState extends State<MainJournalScreen> {
     _titleController.dispose();
     _contentController.dispose();
     _contentFocusNode.dispose();
+    _titleFocusNode.dispose();
     _saveDebounceTimer?.cancel();
     super.dispose();
   }
@@ -112,10 +115,11 @@ class _MainJournalScreenState extends State<MainJournalScreen> {
           if (!_serverService.pages.any((p) => p.id == _selectedPage!.id)) {
             _selectedPage = null;
             _isEditing = false;
+            _navigationHistory.clear();
           } else if (updatedPage.revision > _selectedPage!.revision) {
             _selectedPage = updatedPage;
-            // Only update text controllers if user is not currently focusing
-            if (!_contentFocusNode.hasFocus) {
+            // Only update text controllers if user is not currently focusing either field
+            if (!_contentFocusNode.hasFocus && !_titleFocusNode.hasFocus) {
               _titleController.text = updatedPage.title;
               _contentController.text = updatedPage.content;
             }
@@ -169,7 +173,12 @@ class _MainJournalScreenState extends State<MainJournalScreen> {
     );
   }
 
-  void _selectPage(DbPage page) {
+  void _selectPage(DbPage page, {bool pushToHistory = true}) {
+    _flushPendingSave();
+
+    if (pushToHistory && _selectedPage != null && _selectedPage!.id != page.id) {
+      _navigationHistory.add(_selectedPage!.id);
+    }
     setState(() {
       _selectedPage = page;
       _titleController.text = page.title;
@@ -178,23 +187,50 @@ class _MainJournalScreenState extends State<MainJournalScreen> {
     });
   }
 
+  void _goBack() {
+    while (_navigationHistory.isNotEmpty) {
+      final prevId = _navigationHistory.removeLast();
+      // Check if page still exists and is not archived
+      final exists = _serverService.pages.any((p) => p.id == prevId);
+      if (exists) {
+        final prevPage = _serverService.pages.firstWhere((p) => p.id == prevId);
+        _selectPage(prevPage, pushToHistory: false);
+        return;
+      }
+    }
+  }
+
+  void _flushPendingSave() {
+    _saveDebounceTimer?.cancel();
+    _saveDebounceTimer = null;
+    if (_selectedPage == null) return;
+
+    final newTitle = _titleController.text.trim().isEmpty
+        ? 'Untitled'
+        : _titleController.text.trim();
+
+    _serverService.updatePage(
+      id: _selectedPage!.id,
+      title: newTitle,
+      content: _contentController.text,
+      emoji: _selectedPage!.emoji,
+    );
+  }
+
   void _saveCurrentPage() {
     if (_selectedPage == null) return;
     
     // Debounce: cancel any pending save and restart timer
     _saveDebounceTimer?.cancel();
     _saveDebounceTimer = Timer(const Duration(milliseconds: 500), () {
-      final newTitle = _titleController.text.trim().isEmpty 
-          ? 'Untitled' 
-          : _titleController.text.trim();
-          
-      _serverService.updatePage(
-        id: _selectedPage!.id,
-        title: newTitle,
-        content: _contentController.text,
-        emoji: _selectedPage!.emoji,
-      );
+      _flushPendingSave();
     });
+  }
+
+  void _saveCurrentPageImmediate() {
+    _saveDebounceTimer?.cancel();
+    _saveDebounceTimer = null;
+    _flushPendingSave();
   }
 
   void _createSubpage(String? parentId) async {
@@ -237,6 +273,7 @@ class _MainJournalScreenState extends State<MainJournalScreen> {
                 setState(() {
                   _selectedPage = null;
                   _isEditing = false;
+                  _navigationHistory.clear();
                 });
               }
               await _serverService.deletePage(id);
@@ -332,7 +369,7 @@ class _MainJournalScreenState extends State<MainJournalScreen> {
                     setState(() {
                       _selectedPage = _selectedPage!.copyWith(emoji: emoji);
                     });
-                    _saveCurrentPage();
+                    _saveCurrentPageImmediate();
                     Navigator.pop(context);
                   },
                   child: Center(
@@ -370,7 +407,7 @@ class _MainJournalScreenState extends State<MainJournalScreen> {
         offset: selection.start + prefix.length + selectedText.length,
       ),
     );
-    _saveCurrentPage();
+    _saveCurrentPageImmediate();
   }
 
   @override
@@ -380,6 +417,13 @@ class _MainJournalScreenState extends State<MainJournalScreen> {
 
     return Scaffold(
       appBar: AppBar(
+        leading: (_selectedPage != null && _navigationHistory.isNotEmpty)
+            ? IconButton(
+                icon: const Icon(Icons.arrow_back),
+                tooltip: 'Back',
+                onPressed: _goBack,
+              )
+            : null,
         title: Row(
           children: [
             const Text(
@@ -410,13 +454,23 @@ class _MainJournalScreenState extends State<MainJournalScreen> {
         elevation: 0,
         actions: [
           if (_selectedPage != null) ...[
+            // Button to toggle the right subpages drawer
+            Builder(
+              builder: (context) => IconButton(
+                icon: const Icon(Icons.format_list_bulleted),
+                tooltip: 'Subpages Sidebar',
+                onPressed: () {
+                  Scaffold.of(context).openEndDrawer();
+                },
+              ),
+            ),
             // Toggle Edit vs Preview Mode
             IconButton(
               icon: Icon(_isEditing ? Icons.visibility : Icons.edit),
               tooltip: _isEditing ? 'Preview Mode' : 'Edit Mode',
               onPressed: () {
                 if (_isEditing) {
-                  _saveCurrentPage();
+                  _saveCurrentPageImmediate();
                 }
                 setState(() {
                   _isEditing = !_isEditing;
@@ -436,6 +490,7 @@ class _MainJournalScreenState extends State<MainJournalScreen> {
                   setState(() {
                     _selectedPage = null;
                     _isEditing = false;
+                    _navigationHistory.clear();
                   });
                 }
               },
@@ -460,13 +515,13 @@ class _MainJournalScreenState extends State<MainJournalScreen> {
                     ],
                   ),
                 ),
-                PopupMenuItem(
+                const PopupMenuItem(
                   value: 'delete',
                   child: Row(
                     children: [
-                      const Icon(Icons.archive, size: 18, color: Colors.orangeAccent),
-                      const SizedBox(width: 8),
-                      const Text('Archive Page', style: TextStyle(color: Colors.orangeAccent)),
+                      Icon(Icons.archive, size: 18, color: Colors.orangeAccent),
+                      SizedBox(width: 8),
+                      Text('Archive Page', style: TextStyle(color: Colors.orangeAccent)),
                     ],
                   ),
                 ),
@@ -486,6 +541,7 @@ class _MainJournalScreenState extends State<MainJournalScreen> {
         ],
       ),
       drawer: _buildDrawer(rootPages, allPages),
+      endDrawer: _selectedPage != null ? _buildSubpagesEndDrawer() : null,
       body: _selectedPage == null
           ? _buildDashboard(rootPages)
           : _buildPageEditor(),
@@ -548,6 +604,119 @@ class _MainJournalScreenState extends State<MainJournalScreen> {
                   foregroundColor: Colors.grey,
                   side: const BorderSide(color: Color(0xFF2C2C2C)),
                   padding: const EdgeInsets.symmetric(vertical: 10),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // Right sidebar drawer showing a vertical list of subpages scrollable up to bottom
+  Widget _buildSubpagesEndDrawer() {
+    if (_selectedPage == null) return const SizedBox();
+
+    final subpages = _serverService.pages
+        .where((p) => p.parentId == _selectedPage!.id)
+        .toList();
+
+    return Drawer(
+      child: SafeArea(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: const BoxDecoration(
+                border: Border(
+                  bottom: BorderSide(color: Color(0xFF2C2C2C)),
+                ),
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'Subpages',
+                          style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          'Inside: ${_selectedPage!.title.isEmpty ? 'Untitled' : _selectedPage!.title}',
+                          style: const TextStyle(fontSize: 11, color: Colors.grey),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ],
+                    ),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.close),
+                    onPressed: () => Navigator.pop(context),
+                  ),
+                ],
+              ),
+            ),
+            Expanded(
+              child: subpages.isEmpty
+                  ? const Center(
+                      child: Padding(
+                        padding: EdgeInsets.all(24.0),
+                        child: Text(
+                          'No subpages inside this note.',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(color: Colors.grey, fontStyle: FontStyle.italic),
+                        ),
+                      ),
+                    )
+                  : ListView.builder(
+                      padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
+                      itemCount: subpages.length,
+                      itemBuilder: (context, idx) {
+                        final subpage = subpages[idx];
+                        return Card(
+                          color: const Color(0xFF191919),
+                          margin: const EdgeInsets.symmetric(vertical: 4),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(8),
+                            side: BorderSide(color: Colors.white.withOpacity(0.05)),
+                          ),
+                          child: ListTile(
+                            dense: true,
+                            leading: Text(subpage.emoji, style: const TextStyle(fontSize: 18)),
+                            title: Text(
+                              subpage.title.isEmpty ? 'Untitled' : subpage.title,
+                              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            onTap: () {
+                              Navigator.pop(context); // Close Drawer
+                              _selectPage(subpage);
+                            },
+                          ),
+                        );
+                      },
+                    ),
+            ),
+            Padding(
+              padding: const EdgeInsets.all(16.0),
+              child: ElevatedButton.icon(
+                onPressed: () {
+                  Navigator.pop(context); // Close Drawer
+                  _createSubpage(_selectedPage!.id);
+                },
+                icon: const Icon(Icons.add),
+                label: const Text('Add Subpage'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF818CF8),
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 12),
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                 ),
               ),
@@ -910,6 +1079,7 @@ class _MainJournalScreenState extends State<MainJournalScreen> {
                 // Page Title Field
                 TextField(
                   controller: _titleController,
+                  focusNode: _titleFocusNode,
                   enabled: _isEditing,
                   style: const TextStyle(
                     fontSize: 26, 
@@ -950,11 +1120,7 @@ class _MainJournalScreenState extends State<MainJournalScreen> {
                         ),
                       ),
                 
-                // Nested subpages list shown at the bottom of the page
-                if (!_isEditing) ...[
-                  const Divider(height: 48, color: Color(0xFF2C2C2C)),
-                  _buildSubpagesList(),
-                ],
+
               ],
             ),
           ),
@@ -1003,83 +1169,6 @@ class _MainJournalScreenState extends State<MainJournalScreen> {
           ),
         ],
       ),
-    );
-  }
-
-  Widget _buildSubpagesList() {
-    final subpages = _serverService.pages
-        .where((p) => p.parentId == _selectedPage!.id)
-        .toList();
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            const Text(
-              'Subpages',
-              style: TextStyle(
-                fontSize: 14, 
-                fontWeight: FontWeight.bold, 
-                color: Colors.grey,
-              ),
-            ),
-            TextButton.icon(
-              onPressed: () => _createSubpage(_selectedPage!.id),
-              icon: const Icon(Icons.add, size: 16),
-              label: const Text('Add Subpage', style: TextStyle(fontSize: 12)),
-              style: TextButton.styleFrom(foregroundColor: const Color(0xFF818CF8)),
-            ),
-          ],
-        ),
-        const SizedBox(height: 8),
-        if (subpages.isEmpty)
-          const Text(
-            'No subpages yet.',
-            style: TextStyle(fontSize: 12, color: Colors.grey, fontStyle: FontStyle.italic),
-          )
-        else
-          GridView.builder(
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            itemCount: subpages.length,
-            gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-              maxCrossAxisExtent: 180,
-              mainAxisSpacing: 10,
-              crossAxisSpacing: 10,
-              childAspectRatio: 2.8,
-            ),
-            itemBuilder: (context, idx) {
-              final subpage = subpages[idx];
-              return InkWell(
-                onTap: () => _selectPage(subpage),
-                borderRadius: BorderRadius.circular(8),
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                  decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(0.03),
-                    border: Border.all(color: Colors.white.withOpacity(0.05)),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Row(
-                    children: [
-                      Text(subpage.emoji, style: const TextStyle(fontSize: 16)),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          subpage.title.isEmpty ? 'Untitled' : subpage.title,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              );
-            },
-          ),
-      ],
     );
   }
 }

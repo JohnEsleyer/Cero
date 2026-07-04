@@ -482,15 +482,19 @@ class ServerService extends ChangeNotifier {
   Future<void> _updateItem(DbPage page, {required bool fromRemote}) async {
     final index = _pages.indexWhere((p) => p.id == page.id);
     if (index != -1) {
-      // Reject stale updates from remote (revision check)
-      if (fromRemote && page.revision < _pages[index].revision) {
+      // Reject stale updates from remote when revision is explicitly provided
+      if (fromRemote &&
+          page.revision > 0 &&
+          page.revision < _pages[index].revision) {
         debugPrint('Rejected stale update for ${page.id}: local rev ${_pages[index].revision} > incoming rev ${page.revision}');
         return;
       }
 
       try {
         final updatedPage = page.copyWith(
-          revision: fromRemote ? page.revision : _pages[index].revision + 1,
+          revision: fromRemote && page.revision > 0
+              ? page.revision
+              : _pages[index].revision + 1,
         );
 
         // Save to SQLite
