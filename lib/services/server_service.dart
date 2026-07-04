@@ -108,6 +108,7 @@ class ServerService extends ChangeNotifier {
       'activeWorkspace': _dbService.currentWorkspaceName,
       'availableWorkspaces': names,
     });
+    _broadcastMetadataToAllClients();
     notifyListeners();
   }
 
@@ -289,9 +290,7 @@ class ServerService extends ChangeNotifier {
     final acceptMsg = {'type': 'pairing_accepted'};
     socket.add(jsonEncode(acceptMsg));
 
-    // Send workspace status
     _sendWorkspaceStatus(socket);
-    // Send metadata-only sync
     _syncMetadataToClient(socket);
   }
 
@@ -315,7 +314,6 @@ class ServerService extends ChangeNotifier {
       final String type = data['type'] ?? '';
 
       switch (type) {
-        // Page operations
         case 'add':
           if (data['item'] != null) {
             final newPage = DbPage.fromMap(data['item']);
@@ -351,7 +349,6 @@ class ServerService extends ChangeNotifier {
           }
           break;
 
-        // Card operations
         case 'fetch_cards':
           final String pageId = data['page_id'] ?? '';
           if (pageId.isNotEmpty) await _sendCardsToClient(sender, pageId);
@@ -370,8 +367,9 @@ class ServerService extends ChangeNotifier {
           break;
         case 'delete_card':
           final String cardId = data['id'] ?? '';
+          final String deletePageId = data['page_id'] ?? '';
           if (cardId.isNotEmpty) {
-            await _deleteCard(cardId, fromRemote: true);
+            await _deleteCard(cardId, deletePageId: deletePageId, fromRemote: true);
           }
           break;
         case 'reorder_cards':
@@ -382,7 +380,6 @@ class ServerService extends ChangeNotifier {
           }
           break;
 
-        // Workspace operations
         case 'switch_workspace':
           final String wsName = data['workspaceName'] ?? '';
           if (wsName.isNotEmpty) await _handleSwitchWorkspace(wsName);
@@ -462,11 +459,10 @@ class ServerService extends ChangeNotifier {
         'revision': page.revision,
       }).toList();
 
-      final syncMessage = {
+      socket.add(jsonEncode({
         'type': 'sync',
         'data': metaData,
-      };
-      socket.add(jsonEncode(syncMessage));
+      }));
     } catch (e) {
       debugPrint('Error syncing metadata: $e');
     }
@@ -475,14 +471,52 @@ class ServerService extends ChangeNotifier {
   Future<void> _sendCardsToClient(WebSocket socket, String pageId) async {
     try {
       final cards = await _dbService.getCards(pageId);
-      final msg = {
+      socket.add(jsonEncode({
         'type': 'sync_cards',
         'page_id': pageId,
         'cards': cards.map((c) => c.toMap()).toList(),
-      };
-      socket.add(jsonEncode(msg));
+      }));
     } catch (e) {
       debugPrint('Error sending cards to client: $e');
+    }
+  }
+
+  // --- Multiplayer State Synchronization Broadcasts ---
+
+  void _broadcastMetadataToAllClients() {
+    try {
+      final metaData = _pages.map((page) => {
+        'id': page.id,
+        'parent_id': page.parentId,
+        'relation_type': page.relationType,
+        'title': page.title,
+        'emoji': page.emoji,
+        'created_at': page.createdAt.toIso8601String(),
+        'updated_at': page.updatedAt.toIso8601String(),
+        'is_archived': page.isArchived ? 1 : 0,
+        'sort_order': page.sortOrder,
+        'revision': page.revision,
+      }).toList();
+
+      _broadcastToAllClients({
+        'type': 'sync',
+        'data': metaData,
+      });
+    } catch (e) {
+      debugPrint('Error broadcasting metadata state: $e');
+    }
+  }
+
+  Future<void> _broadcastCardsToAllClients(String pageId) async {
+    try {
+      final cards = await _dbService.getCards(pageId);
+      _broadcastToAllClients({
+        'type': 'sync_cards',
+        'page_id': pageId,
+        'cards': cards.map((c) => c.toMap()).toList(),
+      });
+    } catch (e) {
+      debugPrint('Error broadcasting card state for page $pageId: $e');
     }
   }
 
@@ -514,10 +548,7 @@ class ServerService extends ChangeNotifier {
       _pages.add(page);
       notifyListeners();
 
-      _broadcastToAllClients({
-        'type': 'add',
-        'item': page.toMap(),
-      });
+      _broadcastMetadataToAllClients();
     } catch (e) {
       debugPrint('Error inserting page: $e');
     }
@@ -561,10 +592,7 @@ class ServerService extends ChangeNotifier {
         _pages[index] = updatedPage;
         notifyListeners();
 
-        _broadcastToAllClients({
-          'type': 'update',
-          'item': updatedPage.toMap(),
-        });
+        _broadcastMetadataToAllClients();
       } catch (e) {
         debugPrint('Error updating page: $e');
       }
@@ -580,10 +608,7 @@ class ServerService extends ChangeNotifier {
       await _dbService.archivePageRecursive(id);
       await loadDatabaseState();
 
-      _broadcastToAllClients({
-        'type': 'archive',
-        'id': id,
-      });
+      _broadcastMetadataToAllClients();
     } catch (e) {
       debugPrint('Error archiving page: $e');
     }
@@ -598,10 +623,7 @@ class ServerService extends ChangeNotifier {
       await _dbService.restorePageRecursive(id);
       await loadDatabaseState();
 
-      _broadcastToAllClients({
-        'type': 'restore',
-        'id': id,
-      });
+      _broadcastMetadataToAllClients();
     } catch (e) {
       debugPrint('Error restoring page: $e');
     }
@@ -625,11 +647,7 @@ class ServerService extends ChangeNotifier {
       _pages[index] = movedPage;
       notifyListeners();
 
-      _broadcastToAllClients({
-        'type': 'move',
-        'id': id,
-        'parent_id': newParentId,
-      });
+      _broadcastMetadataToAllClients();
     } catch (e) {
       debugPrint('Error moving page: $e');
     }
@@ -644,10 +662,7 @@ class ServerService extends ChangeNotifier {
       await _dbService.hardDeletePageRecursive(id);
       await loadDatabaseState();
 
-      _broadcastToAllClients({
-        'type': 'hard_delete',
-        'id': id,
-      });
+      _broadcastMetadataToAllClients();
     } catch (e) {
       debugPrint('Error permanently deleting page: $e');
     }
@@ -679,10 +694,7 @@ class ServerService extends ChangeNotifier {
     try {
       await _dbService.insertCard(card);
 
-      _broadcastToAllClients({
-        'type': 'add_card',
-        'item': card.toMap(),
-      });
+      await _broadcastCardsToAllClients(card.pageId);
       notifyListeners();
     } catch (e) {
       debugPrint('Error inserting card: $e');
@@ -708,10 +720,7 @@ class ServerService extends ChangeNotifier {
     try {
       await _dbService.updateCard(card);
 
-      _broadcastToAllClients({
-        'type': 'update_card',
-        'item': card.toMap(),
-      });
+      await _broadcastCardsToAllClients(card.pageId);
       notifyListeners();
     } catch (e) {
       debugPrint('Error updating card: $e');
@@ -729,18 +738,16 @@ class ServerService extends ChangeNotifier {
     await _reorderCards(card.pageId, cardIds, fromRemote: false);
   }
 
-  Future<void> _deleteCard(String cardId, {required bool fromRemote}) async {
+  Future<void> _deleteCard(String cardId, {String? deletePageId, required bool fromRemote}) async {
     try {
       final card = await _dbService.getCard(cardId);
-      final pageId = card?.pageId ?? '';
+      final pageId = deletePageId ?? card?.pageId ?? '';
 
       await _dbService.deleteCard(cardId);
 
-      _broadcastToAllClients({
-        'type': 'delete_card',
-        'id': cardId,
-        'page_id': pageId,
-      });
+      if (pageId.isNotEmpty) {
+        await _broadcastCardsToAllClients(pageId);
+      }
       notifyListeners();
     } catch (e) {
       debugPrint('Error deleting card: $e');
@@ -751,11 +758,7 @@ class ServerService extends ChangeNotifier {
     try {
       await _dbService.reorderCards(pageId, cardIds);
 
-      _broadcastToAllClients({
-        'type': 'reorder_cards',
-        'page_id': pageId,
-        'order': cardIds,
-      });
+      await _broadcastCardsToAllClients(pageId);
       notifyListeners();
     } catch (e) {
       debugPrint('Error reordering cards: $e');
@@ -795,6 +798,7 @@ class ServerService extends ChangeNotifier {
         'activeWorkspace': _dbService.currentWorkspaceName,
         'availableWorkspaces': names,
       });
+      _broadcastMetadataToAllClients();
     } catch (e) {
       debugPrint('Error creating workspace: $e');
     }
