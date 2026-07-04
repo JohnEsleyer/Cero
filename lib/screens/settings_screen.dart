@@ -423,7 +423,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     icon: const Icon(Icons.download, size: 16),
                     label: const Text('Export Workspace'),
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF818CF8).withValues(alpha: 0.15),
+                      backgroundColor: const Color(0xFF818CF8).withOpacity(0.15),
                       foregroundColor: const Color(0xFF818CF8),
                       elevation: 0,
                       padding: const EdgeInsets.symmetric(vertical: 12),
@@ -497,10 +497,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 return Container(
                   margin: const EdgeInsets.symmetric(vertical: 4),
                   decoration: BoxDecoration(
-                    color: isActive ? const Color(0xFF818CF8).withValues(alpha: 0.08) : const Color(0xFF191919),
+                    color: isActive ? const Color(0xFF818CF8).withOpacity(0.08) : const Color(0xFF191919),
                     borderRadius: BorderRadius.circular(8),
                     border: Border.all(
-                      color: isActive ? const Color(0xFF818CF8).withValues(alpha: 0.3) : const Color(0xFF2C2C2C),
+                      color: isActive ? const Color(0xFF818CF8).withOpacity(0.3) : const Color(0xFF2C2C2C),
                     ),
                   ),
                   child: ListTile(

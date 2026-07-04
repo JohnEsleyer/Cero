@@ -4,6 +4,8 @@ import '../models/card_model.dart' as models;
 import 'markdown_card.dart';
 import 'image_card.dart';
 import 'subpage_link_card.dart';
+import 'code_card.dart'; 
+import 'sites_card.dart'; 
 
 class CardColumn extends StatefulWidget {
   final List<models.Card> cards;
@@ -77,7 +79,7 @@ class _CardColumnState extends State<CardColumn> {
                     icon: const Icon(Icons.text_fields, size: 16),
                     label: const Text('Markdown'),
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF818CF8).withValues(alpha: 0.15),
+                      backgroundColor: const Color(0xFF818CF8).withOpacity(0.15),
                       foregroundColor: const Color(0xFF818CF8),
                       elevation: 0,
                     ),
@@ -87,7 +89,7 @@ class _CardColumnState extends State<CardColumn> {
                     icon: const Icon(Icons.image_outlined, size: 16),
                     label: const Text('Image'),
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF818CF8).withValues(alpha: 0.15),
+                      backgroundColor: const Color(0xFF818CF8).withOpacity(0.15),
                       foregroundColor: const Color(0xFF818CF8),
                       elevation: 0,
                     ),
@@ -97,7 +99,35 @@ class _CardColumnState extends State<CardColumn> {
                     icon: const Icon(Icons.link, size: 16),
                     label: const Text('Link'),
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF818CF8).withValues(alpha: 0.15),
+                      backgroundColor: const Color(0xFF818CF8).withOpacity(0.15),
+                      foregroundColor: const Color(0xFF818CF8),
+                      elevation: 0,
+                    ),
+                  ),
+                  ElevatedButton.icon(
+                    onPressed: () => widget.onCardAdded(
+                      widget.selectedPage.id,
+                      'code',
+                      'javascript\nconsole.log("Hello from Cero Code Block!");\n',
+                    ),
+                    icon: const Icon(Icons.code, size: 16),
+                    label: const Text('Code Block'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF818CF8).withOpacity(0.15),
+                      foregroundColor: const Color(0xFF818CF8),
+                      elevation: 0,
+                    ),
+                  ),
+                  ElevatedButton.icon(
+                    onPressed: () => widget.onCardAdded(
+                      widget.selectedPage.id,
+                      'sites',
+                      '{"name": "Interactive Site Widget", "description": "Sandboxed HTML preview widget", "html": "<h1>Welcome directly to Sandboxed Environment!</h1>\\n<p>Change this code inside the editor tab to render customized HTML components.</p>"}',
+                    ),
+                    icon: const Icon(Icons.web, size: 16),
+                    label: const Text('HTML Site'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF818CF8).withOpacity(0.15),
                       foregroundColor: const Color(0xFF818CF8),
                       elevation: 0,
                     ),
@@ -220,6 +250,22 @@ class _CardColumnState extends State<CardColumn> {
           onMoveUp: _cardIndex(card) > 0 ? () => _moveCard(_cardIndex(card), -1) : null,
           onMoveDown: _cardIndex(card) < widget.cards.length - 1 ? () => _moveCard(_cardIndex(card), 1) : null,
         );
+      case 'code':
+        return CodeCard(
+          card: card,
+          onContentChanged: (content) => widget.onCardUpdated(card.id, content),
+          onDelete: () => widget.onCardDeleted(card.id),
+          onMoveUp: _cardIndex(card) > 0 ? () => _moveCard(_cardIndex(card), -1) : null,
+          onMoveDown: _cardIndex(card) < widget.cards.length - 1 ? () => _moveCard(_cardIndex(card), 1) : null,
+        );
+      case 'sites':
+        return SitesCard(
+          card: card,
+          onContentChanged: (content) => widget.onCardUpdated(card.id, content),
+          onDelete: () => widget.onCardDeleted(card.id),
+          onMoveUp: _cardIndex(card) > 0 ? () => _moveCard(_cardIndex(card), -1) : null,
+          onMoveDown: _cardIndex(card) < widget.cards.length - 1 ? () => _moveCard(_cardIndex(card), 1) : null,
+        );
       default:
         return MarkdownCard(
           card: card,
@@ -254,42 +300,71 @@ class _CardColumnState extends State<CardColumn> {
     showModalBottomSheet(
       context: context,
       backgroundColor: const Color(0xFF202020),
+      isScrollControlled: true,
       builder: (ctx) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Padding(
-              padding: EdgeInsets.all(16),
-              child: Text('Add card', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16)),
-            ),
-            ListTile(
-              leading: const Icon(Icons.text_fields, color: Color(0xFF818CF8)),
-              title: const Text('Markdown', style: TextStyle(color: Colors.white)),
-              subtitle: const Text('Write formatted text', style: TextStyle(color: Colors.grey, fontSize: 12)),
-              onTap: () {
-                Navigator.pop(ctx);
-                widget.onCardAdded(widget.selectedPage.id, 'markdown', '');
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.image_outlined, color: Color(0xFF818CF8)),
-              title: const Text('Image', style: TextStyle(color: Colors.white)),
-              subtitle: const Text('Embed an image', style: TextStyle(color: Colors.grey, fontSize: 12)),
-              onTap: () {
-                Navigator.pop(ctx);
-                widget.onCardAdded(widget.selectedPage.id, 'image', '');
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.link, color: Color(0xFF818CF8)),
-              title: const Text('Subpage Link', style: TextStyle(color: Colors.white)),
-              subtitle: const Text('Link to another page', style: TextStyle(color: Colors.grey, fontSize: 12)),
-              onTap: () {
-                Navigator.pop(ctx);
-                widget.onCardAdded(widget.selectedPage.id, 'subpage_link', '');
-              },
-            ),
-          ],
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Padding(
+                padding: EdgeInsets.all(16),
+                child: Text('Add card', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16)),
+              ),
+              ListTile(
+                leading: const Icon(Icons.text_fields, color: Color(0xFF818CF8)),
+                title: const Text('Markdown', style: TextStyle(color: Colors.white)),
+                subtitle: const Text('Write formatted text', style: TextStyle(color: Colors.grey, fontSize: 12)),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  widget.onCardAdded(widget.selectedPage.id, 'markdown', '');
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.image_outlined, color: Color(0xFF818CF8)),
+                title: const Text('Image', style: TextStyle(color: Colors.white)),
+                subtitle: const Text('Embed an image', style: TextStyle(color: Colors.grey, fontSize: 12)),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  widget.onCardAdded(widget.selectedPage.id, 'image', '');
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.link, color: Color(0xFF818CF8)),
+                title: const Text('Subpage Link', style: TextStyle(color: Colors.white)),
+                subtitle: const Text('Link to another page', style: TextStyle(color: Colors.grey, fontSize: 12)),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  widget.onCardAdded(widget.selectedPage.id, 'subpage_link', '');
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.code, color: Color(0xFF818CF8)),
+                title: const Text('Code Block', style: TextStyle(color: Colors.white)),
+                subtitle: const Text('Write syntax-highlighted code', style: TextStyle(color: Colors.grey, fontSize: 12)),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  widget.onCardAdded(
+                    widget.selectedPage.id,
+                    'code',
+                    'javascript\nconsole.log("Hello from Cero Code Block!");\n',
+                  );
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.web, color: Color(0xFF818CF8)),
+                title: const Text('HTML Site', style: TextStyle(color: Colors.white)),
+                subtitle: const Text('Render customized sandboxed HTML widget', style: TextStyle(color: Colors.grey, fontSize: 12)),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  widget.onCardAdded(
+                    widget.selectedPage.id,
+                    'sites',
+                    '{"name": "Interactive Site Widget", "description": "Sandboxed HTML preview widget", "html": "<h1>Welcome directly to Sandboxed Environment!</h1>\\n<p>Change this code inside the editor tab to render customized HTML components.</p>"}',
+                  );
+                },
+              ),
+            ],
+          ),
         ),
       ),
     );

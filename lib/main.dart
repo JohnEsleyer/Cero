@@ -514,7 +514,7 @@ class _MainJournalScreenState extends State<MainJournalScreen> {
                           },
                           style: TextButton.styleFrom(
                             backgroundColor: isActive
-                                ? const Color(0xFF818CF8).withValues(alpha: 0.15)
+                                ? const Color(0xFF818CF8).withOpacity(0.15)
                                 : Colors.transparent,
                             shape: RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(8),
@@ -674,8 +674,8 @@ class _MainJournalScreenState extends State<MainJournalScreen> {
       padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
       decoration: BoxDecoration(
         color: _serverService.isRunning
-            ? Colors.green.withValues(alpha: 0.1)
-            : Colors.grey.withValues(alpha: 0.1),
+            ? Colors.green.withOpacity(0.1)
+            : Colors.grey.withOpacity(0.1),
         borderRadius: BorderRadius.circular(4),
       ),
       child: Text(
@@ -1193,7 +1193,7 @@ class _MainJournalScreenState extends State<MainJournalScreen> {
             margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 1),
             decoration: BoxDecoration(
               color: isSelected
-                  ? const Color(0xFF818CF8).withValues(alpha: 0.1)
+                  ? const Color(0xFF818CF8).withOpacity(0.1)
                   : Colors.transparent,
               borderRadius: BorderRadius.circular(6),
             ),
@@ -1450,7 +1450,7 @@ class _MainJournalScreenState extends State<MainJournalScreen> {
                 child: Container(
                   padding: const EdgeInsets.all(6),
                   decoration: BoxDecoration(
-                    color: Colors.white.withValues(alpha: 0.03),
+                    color: Colors.white.withOpacity(0.03),
                     borderRadius: BorderRadius.circular(8),
                   ),
                   child: Text(
