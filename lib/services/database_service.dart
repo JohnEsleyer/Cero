@@ -505,4 +505,48 @@ class DatabaseService {
       whereArgs: [cardId],
     );
   }
+
+  // --- Image Storage ---
+
+  Future<Directory> _getImageDir() async {
+    final wsName = currentWorkspaceName;
+    final appDir = await getApplicationDocumentsDirectory();
+    final imageDir = Directory('${appDir.path}/cero_workspaces/${wsName}_images');
+    if (!await imageDir.exists()) {
+      await imageDir.create(recursive: true);
+    }
+    return imageDir;
+  }
+
+  /// Saves image bytes to the workspace image directory.
+  /// Returns the filename to store in card.content.
+  Future<String> saveImage(Uint8List imageBytes, String originalName) async {
+    final dir = await _getImageDir();
+    final ext = originalName.contains('.')
+        ? originalName.substring(originalName.lastIndexOf('.'))
+        : '.png';
+    final filename = '${DateTime.now().millisecondsSinceEpoch}_$ext';
+    final file = File('${dir.path}/$filename');
+    await file.writeAsBytes(imageBytes);
+    return filename;
+  }
+
+  /// Returns the full file path for a workspace image filename.
+  Future<String?> getImagePath(String filename) async {
+    final dir = await _getImageDir();
+    final file = File('${dir.path}/$filename');
+    if (await file.exists()) {
+      return file.path;
+    }
+    return null;
+  }
+
+  /// Deletes a workspace image file.
+  Future<void> deleteImage(String filename) async {
+    final dir = await _getImageDir();
+    final file = File('${dir.path}/$filename');
+    if (await file.exists()) {
+      await file.delete();
+    }
+  }
 }

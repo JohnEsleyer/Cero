@@ -1,9 +1,9 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:flutter_markdown/flutter_markdown.dart';
 import 'services/server_service.dart';
 import 'models/page_model.dart';
 import 'models/card_model.dart' as models;
+import 'widgets/card_column.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -61,23 +61,22 @@ class _MainJournalScreenState extends State<MainJournalScreen> {
   
   // Selected page state
   DbPage? _selectedPage;
-  bool _isEditing = false; // Toggle between Edit and Preview
 
   // Navigation State
   final Set<String> _expandedPageIds = {};
   bool _showArchived = false;
   List<DbPage> _archivedPages = [];
-  final List<String> _navigationHistory = []; // Stack for Back functionality
+  final List<String> _navigationHistory = [];
 
   // Text Editing Controllers
   final TextEditingController _titleController = TextEditingController();
-  final TextEditingController _contentController = TextEditingController();
-  final FocusNode _contentFocusNode = FocusNode();
   final FocusNode _titleFocusNode = FocusNode();
 
   // Card state for current page
-  List<models.Card> _currentCards = [];
-  models.Card? _activeCard; // The markdown card being edited
+  List<models.Card> _pageCards = [];
+
+  // Side pages (contextual pages for current page)
+  List<DbPage> _sidePages = [];
 
   // Debounce timer for save operations
   Timer? _saveDebounceTimer;
@@ -99,8 +98,6 @@ class _MainJournalScreenState extends State<MainJournalScreen> {
   void dispose() {
     _serverService.removeListener(_onServerStateChanged);
     _titleController.dispose();
-    _contentController.dispose();
-    _contentFocusNode.dispose();
     _titleFocusNode.dispose();
     _saveDebounceTimer?.cancel();
     super.dispose();
@@ -117,13 +114,11 @@ class _MainJournalScreenState extends State<MainJournalScreen> {
 
           if (!_serverService.pages.any((p) => p.id == _selectedPage!.id)) {
             _selectedPage = null;
-            _isEditing = false;
             _navigationHistory.clear();
-            _currentCards = [];
-            _activeCard = null;
+            _pageCards = [];
           } else if (updatedPage.revision > _selectedPage!.revision) {
             _selectedPage = updatedPage;
-            if (!_contentFocusNode.hasFocus && !_titleFocusNode.hasFocus) {
+            if (!_titleFocusNode.hasFocus) {
               _titleController.text = updatedPage.title;
               _loadCardsForPage(updatedPage.id);
             }
@@ -138,19 +133,10 @@ class _MainJournalScreenState extends State<MainJournalScreen> {
   Future<void> _loadCardsForPage(String pageId) async {
     try {
       final cards = await _serverService.dbService.getCards(pageId);
+      final sidePages = await _serverService.dbService.getSidePages(pageId);
       setState(() {
-        _currentCards = cards;
-        _activeCard = cards.isNotEmpty
-            ? cards.firstWhere(
-                (c) => c.type == 'markdown',
-                orElse: () => cards.first,
-              )
-            : null;
-        if (_activeCard != null) {
-          _contentController.text = _activeCard!.content;
-        } else {
-          _contentController.text = '';
-        }
+        _pageCards = cards;
+        _sidePages = sidePages;
       });
     } catch (e) {
       debugPrint('Error loading cards: $e');
@@ -207,9 +193,8 @@ class _MainJournalScreenState extends State<MainJournalScreen> {
     setState(() {
       _selectedPage = page;
       _titleController.text = page.title;
-      _isEditing = false;
-      _currentCards = [];
-      _activeCard = null;
+      _pageCards = [];
+      _sidePages = [];
     });
     _loadCardsForPage(page.id);
   }
@@ -236,20 +221,11 @@ class _MainJournalScreenState extends State<MainJournalScreen> {
         ? 'Untitled'
         : _titleController.text.trim();
 
-    // Save page title/emoji
     _serverService.updatePage(
       id: _selectedPage!.id,
       title: newTitle,
       emoji: _selectedPage!.emoji,
     );
-
-    // Save active card content
-    if (_activeCard != null) {
-      _serverService.updateCard(
-        id: _activeCard!.id,
-        content: _contentController.text,
-      );
-    }
   }
 
   void _saveCurrentPage() {
@@ -313,7 +289,6 @@ class _MainJournalScreenState extends State<MainJournalScreen> {
               if (_selectedPage?.id == id) {
                 setState(() {
                   _selectedPage = null;
-                  _isEditing = false;
                   _navigationHistory.clear();
                 });
               }
@@ -428,33 +403,10 @@ class _MainJournalScreenState extends State<MainJournalScreen> {
     );
   }
 
-  // Helper to insert markdown tags at cursor position
-  void _insertMarkdown(String prefix, String suffix) {
-    final text = _contentController.text;
-    final selection = _contentController.selection;
-    
-    if (!selection.isValid) return;
-
-    final selectedText = selection.textInside(text);
-    final newText = text.replaceRange(
-      selection.start,
-      selection.end,
-      '$prefix$selectedText$suffix',
-    );
-    
-    _contentController.value = TextEditingValue(
-      text: newText,
-      selection: TextSelection.collapsed(
-        offset: selection.start + prefix.length + selectedText.length,
-      ),
-    );
-    _saveCurrentPageImmediate();
-  }
-
   @override
   Widget build(BuildContext context) {
     final allPages = _serverService.pages;
-    final rootPages = allPages.where((p) => p.parentId == null).toList();
+    final rootPages = allPages.where((p) => p.parentId == null && p.relationType != 'sidepage').toList();
 
     return Scaffold(
       appBar: AppBar(
@@ -495,28 +447,15 @@ class _MainJournalScreenState extends State<MainJournalScreen> {
         elevation: 0,
         actions: [
           if (_selectedPage != null) ...[
-            // Button to toggle the right subpages drawer
+            // Button to toggle the right context pages drawer
             Builder(
               builder: (context) => IconButton(
-                icon: const Icon(Icons.format_list_bulleted),
-                tooltip: 'Subpages Sidebar',
+                icon: const Icon(Icons.open_in_new),
+                tooltip: 'Context Pages',
                 onPressed: () {
                   Scaffold.of(context).openEndDrawer();
                 },
               ),
-            ),
-            // Toggle Edit vs Preview Mode
-            IconButton(
-              icon: Icon(_isEditing ? Icons.visibility : Icons.edit),
-              tooltip: _isEditing ? 'Preview Mode' : 'Edit Mode',
-              onPressed: () {
-                if (_isEditing) {
-                  _saveCurrentPageImmediate();
-                }
-                setState(() {
-                  _isEditing = !_isEditing;
-                });
-              },
             ),
             // Options Dropdown
             PopupMenuButton<String>(
@@ -525,12 +464,13 @@ class _MainJournalScreenState extends State<MainJournalScreen> {
                   _archiveSelectedPage(_selectedPage!.id);
                 } else if (value == 'subpage') {
                   _createSubpage(_selectedPage!.id);
+                } else if (value == 'sidepage') {
+                  _createSubpage(_selectedPage!.id, relationType: 'sidepage');
                 } else if (value == 'move') {
                   _showMoveDialog();
-                } else if (value == 'close') {
+                } else                 if (value == 'close') {
                   setState(() {
                     _selectedPage = null;
-                    _isEditing = false;
                     _navigationHistory.clear();
                   });
                 }
@@ -543,6 +483,16 @@ class _MainJournalScreenState extends State<MainJournalScreen> {
                       Icon(Icons.add_box_outlined, size: 18),
                       SizedBox(width: 8),
                       Text('Create Subpage'),
+                    ],
+                  ),
+                ),
+                PopupMenuItem(
+                  value: 'sidepage',
+                  child: Row(
+                    children: [
+                      const Icon(Icons.open_in_new, size: 18),
+                      const SizedBox(width: 8),
+                      const Text('Create Side Page'),
                     ],
                   ),
                 ),
@@ -659,106 +609,96 @@ class _MainJournalScreenState extends State<MainJournalScreen> {
   Widget _buildSubpagesEndDrawer() {
     if (_selectedPage == null) return const SizedBox();
 
-    final subpages = _serverService.pages
-        .where((p) => p.parentId == _selectedPage!.id)
-        .toList();
-
     return Drawer(
+      width: 240,
+      backgroundColor: const Color(0xFF161616),
       child: SafeArea(
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
+            // Header
             Container(
-              padding: const EdgeInsets.all(16),
+              padding: const EdgeInsets.all(14),
               decoration: const BoxDecoration(
-                border: Border(
-                  bottom: BorderSide(color: Color(0xFF2C2C2C)),
-                ),
+                border: Border(bottom: BorderSide(color: Color(0xFF2C2C2C))),
               ),
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text(
-                          'Subpages',
-                          style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          'Inside: ${_selectedPage!.title.isEmpty ? 'Untitled' : _selectedPage!.title}',
-                          style: const TextStyle(fontSize: 11, color: Colors.grey),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ],
-                    ),
+                  const Text(
+                    'Context',
+                    style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF64748B), letterSpacing: 0.5),
                   ),
                   IconButton(
-                    icon: const Icon(Icons.close),
+                    icon: const Icon(Icons.close, size: 18),
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(),
                     onPressed: () => Navigator.pop(context),
                   ),
                 ],
               ),
             ),
+
+            // Side pages list
             Expanded(
-              child: subpages.isEmpty
+              child: _sidePages.isEmpty
                   ? const Center(
                       child: Padding(
                         padding: EdgeInsets.all(24.0),
                         child: Text(
-                          'No subpages inside this note.',
+                          'No context pages yet.\n\nSide pages provide supplementary info about the current page.',
                           textAlign: TextAlign.center,
-                          style: TextStyle(color: Colors.grey, fontStyle: FontStyle.italic),
+                          style: TextStyle(color: Color(0xFF4A4A4A), fontSize: 12, height: 1.5),
                         ),
                       ),
                     )
                   : ListView.builder(
-                      padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
-                      itemCount: subpages.length,
+                      padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 8),
+                      itemCount: _sidePages.length,
                       itemBuilder: (context, idx) {
-                        final subpage = subpages[idx];
+                        final sp = _sidePages[idx];
                         return Card(
-                          color: const Color(0xFF191919),
-                          margin: const EdgeInsets.symmetric(vertical: 4),
+                          color: const Color(0xFF1E1E1E),
+                          margin: const EdgeInsets.symmetric(vertical: 3),
                           shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(8),
-                            side: BorderSide(color: Colors.white.withOpacity(0.05)),
+                            borderRadius: BorderRadius.circular(6),
+                            side: const BorderSide(color: Color(0xFF2E2E2E)),
                           ),
                           child: ListTile(
                             dense: true,
-                            leading: Text(subpage.emoji, style: const TextStyle(fontSize: 18)),
+                            leading: Text(sp.emoji, style: const TextStyle(fontSize: 16)),
                             title: Text(
-                              subpage.title.isEmpty ? 'Untitled' : subpage.title,
-                              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                              sp.title.isEmpty ? 'Untitled' : sp.title,
+                              style: const TextStyle(fontWeight: FontWeight.w500, fontSize: 12),
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                             ),
+                            trailing: const Icon(Icons.chevron_right, size: 16, color: Color(0xFF64748B)),
                             onTap: () {
-                              Navigator.pop(context); // Close Drawer
-                              _selectPage(subpage);
+                              Navigator.pop(context);
+                              _selectPage(sp);
                             },
                           ),
                         );
                       },
                     ),
             ),
+
+            // Add side page button
             Padding(
-              padding: const EdgeInsets.all(16.0),
-              child: ElevatedButton.icon(
+              padding: const EdgeInsets.all(12),
+              child: OutlinedButton.icon(
                 onPressed: () {
-                  Navigator.pop(context); // Close Drawer
-                  _createSubpage(_selectedPage!.id);
+                  Navigator.pop(context);
+                  _createSubpage(_selectedPage!.id, relationType: 'sidepage');
                 },
-                icon: const Icon(Icons.add),
-                label: const Text('Add Subpage'),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF818CF8),
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(vertical: 12),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                icon: const Icon(Icons.add, size: 16),
+                label: const Text('Add Context Page', style: TextStyle(fontSize: 12)),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: const Color(0xFF818CF8),
+                  side: const BorderSide(color: Color(0xFF3E3E3E)),
+                  padding: const EdgeInsets.symmetric(vertical: 10),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
                 ),
               ),
             ),
@@ -868,7 +808,7 @@ class _MainJournalScreenState extends State<MainJournalScreen> {
   }
 
   Widget _buildPageTreeNode(DbPage page, List<DbPage> allPages, int depth) {
-    final children = allPages.where((p) => p.parentId == page.id).toList();
+    final children = allPages.where((p) => p.parentId == page.id && p.relationType != 'sidepage').toList();
     final hasChildren = children.isNotEmpty;
     final isExpanded = _expandedPageIds.contains(page.id);
     final isSelected = _selectedPage?.id == page.id;
@@ -1091,39 +1031,32 @@ class _MainJournalScreenState extends State<MainJournalScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        // Helper Toolbar for Markdown editing (Only in Edit mode)
-        if (_isEditing) _buildMarkdownToolbar(),
-        
-        Expanded(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.fromLTRB(20, 16, 20, 40),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // Page Emoji Header
-                GestureDetector(
-                  onTap: _showEmojiPicker,
-                  child: Container(
-                    padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(
-                      color: Colors.white.withOpacity(0.03),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: Text(
-                      _selectedPage!.emoji,
-                      style: const TextStyle(fontSize: 48),
-                    ),
+        // Page Header (Emoji + Title)
+        Container(
+          padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
+          child: Row(
+            children: [
+              GestureDetector(
+                onTap: _showEmojiPicker,
+                child: Container(
+                  padding: const EdgeInsets.all(6),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.03),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Text(
+                    _selectedPage!.emoji,
+                    style: const TextStyle(fontSize: 32),
                   ),
                 ),
-                const SizedBox(height: 16),
-                
-                // Page Title Field
-                TextField(
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: TextField(
                   controller: _titleController,
                   focusNode: _titleFocusNode,
-                  enabled: _isEditing,
                   style: const TextStyle(
-                    fontSize: 26, 
+                    fontSize: 22,
                     fontWeight: FontWeight.bold,
                   ),
                   decoration: const InputDecoration(
@@ -1133,83 +1066,44 @@ class _MainJournalScreenState extends State<MainJournalScreen> {
                   ),
                   onChanged: (val) => _saveCurrentPage(),
                 ),
-                const SizedBox(height: 16),
-                
-                // Content Body (Edit area vs Rendered Markdown Preview)
-                _isEditing
-                    ? TextField(
-                        controller: _contentController,
-                        focusNode: _contentFocusNode,
-                        maxLines: null,
-                        keyboardType: TextInputType.multiline,
-                        style: const TextStyle(fontSize: 15, height: 1.5, fontFamily: 'monospace'),
-                        decoration: const InputDecoration(
-                          hintText: 'Start writing notes...',
-                          border: InputBorder.none,
-                        ),
-                        onChanged: (val) => _saveCurrentPage(),
-                      )
-                    : MarkdownBody(
-                        data: _contentController.text,
-                        selectable: true,
-                        styleSheet: MarkdownStyleSheet.fromTheme(Theme.of(context)).copyWith(
-                          p: const TextStyle(fontSize: 15, height: 1.6, color: Color(0xFFE2E8F0)),
-                          h1: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, height: 1.8),
-                          h2: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, height: 1.8),
-                          h3: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold, height: 1.8),
-                          code: const TextStyle(fontFamily: 'monospace', backgroundColor: Color(0xFF2C2C2C)),
-                        ),
-                      ),
-                
+              ),
+            ],
+          ),
+        ),
 
-              ],
-            ),
+        // Card Column
+        Expanded(
+          child: CardColumn(
+            cards: _pageCards,
+            allPages: _serverService.pages,
+            selectedPage: _selectedPage!,
+            onNavigateToPage: _selectPage,
+            onCardUpdated: (cardId, content) async {
+              await _serverService.updateCard(id: cardId, content: content);
+              _loadCardsForPage(_selectedPage!.id);
+            },
+            onCardAdded: (pageId, type, content) async {
+              await _serverService.addCard(
+                pageId: pageId,
+                type: type,
+                content: content,
+              );
+              _loadCardsForPage(pageId);
+            },
+            onCardDeleted: (cardId) async {
+              await _serverService.deleteCard(cardId);
+              _loadCardsForPage(_selectedPage!.id);
+            },
+            onCardsReordered: (cardIds) async {
+              await _serverService.reorderCards(cardIds: cardIds);
+              _loadCardsForPage(_selectedPage!.id);
+            },
+            onCreateNewPage: (parentId) {
+              _createSubpage(parentId);
+            },
           ),
         ),
       ],
-    );
-  }
-
-  Widget _buildMarkdownToolbar() {
-    return Container(
-      color: const Color(0xFF202020),
-      height: 40,
-      child: ListView(
-        scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.symmetric(horizontal: 8),
-        children: [
-          IconButton(
-            icon: const Icon(Icons.format_bold, size: 18),
-            tooltip: 'Bold',
-            onPressed: () => _insertMarkdown('**', '**'),
-          ),
-          IconButton(
-            icon: const Icon(Icons.format_italic, size: 18),
-            tooltip: 'Italic',
-            onPressed: () => _insertMarkdown('*', '*'),
-          ),
-          IconButton(
-            icon: const Icon(Icons.title, size: 18),
-            tooltip: 'Heading 1',
-            onPressed: () => _insertMarkdown('# ', ''),
-          ),
-          IconButton(
-            icon: const Icon(Icons.format_list_bulleted, size: 18),
-            tooltip: 'Bullet List',
-            onPressed: () => _insertMarkdown('- ', ''),
-          ),
-          IconButton(
-            icon: const Icon(Icons.check_box_outlined, size: 18),
-            tooltip: 'Checkbox',
-            onPressed: () => _insertMarkdown('- [ ] ', ''),
-          ),
-          IconButton(
-            icon: const Icon(Icons.code, size: 18),
-            tooltip: 'Code Block',
-            onPressed: () => _insertMarkdown('```\n', '\n```'),
-          ),
-        ],
-      ),
     );
   }
 }

@@ -98,9 +98,15 @@ class ServerService extends ChangeNotifier {
   Future<void> switchWorkspace(String filePath) async {
     await _dbService.switchWorkspace(filePath);
     await loadDatabaseState();
+    final paths = await _dbService.listWorkspaces();
+    final names = paths.map((p) {
+      final filename = p.split(Platform.pathSeparator).last;
+      return filename.replaceAll('.db', '');
+    }).toList();
     _broadcastToAllClients({
       'type': 'workspace_status',
       'activeWorkspace': _dbService.currentWorkspaceName,
+      'availableWorkspaces': names,
     });
     notifyListeners();
   }
@@ -338,6 +344,12 @@ class ServerService extends ChangeNotifier {
             await _moveItem(moveId, newParentId.isEmpty ? null : newParentId, fromRemote: true);
           }
           break;
+        case 'hard_delete':
+          final String hardDeleteId = data['id'] ?? '';
+          if (hardDeleteId.isNotEmpty) {
+            await hardDeletePage(hardDeleteId);
+          }
+          break;
 
         // Card operations
         case 'fetch_cards':
@@ -358,7 +370,9 @@ class ServerService extends ChangeNotifier {
           break;
         case 'delete_card':
           final String cardId = data['id'] ?? '';
-          if (cardId.isNotEmpty) await _deleteCard(cardId, fromRemote: true);
+          if (cardId.isNotEmpty) {
+            await _deleteCard(cardId, fromRemote: true);
+          }
           break;
         case 'reorder_cards':
           final String pageId = data['page_id'] ?? '';
@@ -372,6 +386,13 @@ class ServerService extends ChangeNotifier {
         case 'switch_workspace':
           final String wsName = data['workspaceName'] ?? '';
           if (wsName.isNotEmpty) await _handleSwitchWorkspace(wsName);
+          break;
+        case 'list_workspaces':
+          await _handleListWorkspaces(sender);
+          break;
+        case 'create_workspace':
+          final String newWsName = data['workspaceName'] ?? '';
+          if (newWsName.isNotEmpty) await _handleCreateWorkspace(newWsName, sender);
           break;
 
         default:
@@ -408,11 +429,17 @@ class ServerService extends ChangeNotifier {
 
   // --- Sync Methods ---
 
-  void _sendWorkspaceStatus(WebSocket socket) {
+  void _sendWorkspaceStatus(WebSocket socket) async {
     try {
+      final paths = await _dbService.listWorkspaces();
+      final names = paths.map((p) {
+        final filename = p.split(Platform.pathSeparator).last;
+        return filename.replaceAll('.db', '');
+      }).toList();
       final msg = {
         'type': 'workspace_status',
         'activeWorkspace': _dbService.currentWorkspaceName,
+        'availableWorkspaces': names,
       };
       socket.add(jsonEncode(msg));
     } catch (e) {
@@ -693,13 +720,25 @@ class ServerService extends ChangeNotifier {
     await _deleteCard(cardId, fromRemote: false);
   }
 
+  Future<void> reorderCards({required List<String> cardIds}) async {
+    if (cardIds.isEmpty) return;
+    final card = await _dbService.getCard(cardIds.first);
+    if (card == null) return;
+    await _reorderCards(card.pageId, cardIds, fromRemote: false);
+  }
+
   Future<void> _deleteCard(String cardId, {required bool fromRemote}) async {
     try {
+      // Look up page_id before deleting so we can include it in the broadcast
+      final card = await _dbService.getCard(cardId);
+      final pageId = card?.pageId ?? '';
+
       await _dbService.deleteCard(cardId);
 
       _broadcastToAllClients({
         'type': 'delete_card',
         'id': cardId,
+        'page_id': pageId,
       });
     } catch (e) {
       debugPrint('Error deleting card: $e');
@@ -720,7 +759,43 @@ class ServerService extends ChangeNotifier {
     }
   }
 
-  // --- Workspace Handler ---
+  // --- Workspace Handlers ---
+
+  Future<void> _handleListWorkspaces(WebSocket sender) async {
+    try {
+      final paths = await _dbService.listWorkspaces();
+      final names = paths.map((p) {
+        final filename = p.split(Platform.pathSeparator).last;
+        return filename.replaceAll('.db', '');
+      }).toList();
+      sender.add(jsonEncode({
+        'type': 'workspace_list',
+        'workspaces': names,
+        'activeWorkspace': _dbService.currentWorkspaceName,
+      }));
+    } catch (e) {
+      debugPrint('Error listing workspaces: $e');
+    }
+  }
+
+  Future<void> _handleCreateWorkspace(String workspaceName, WebSocket sender) async {
+    try {
+      await _dbService.createWorkspace(workspaceName);
+      await loadDatabaseState();
+      final paths = await _dbService.listWorkspaces();
+      final names = paths.map((p) {
+        final filename = p.split(Platform.pathSeparator).last;
+        return filename.replaceAll('.db', '');
+      }).toList();
+      _broadcastToAllClients({
+        'type': 'workspace_status',
+        'activeWorkspace': _dbService.currentWorkspaceName,
+        'availableWorkspaces': names,
+      });
+    } catch (e) {
+      debugPrint('Error creating workspace: $e');
+    }
+  }
 
   Future<void> _handleSwitchWorkspace(String workspaceName) async {
     final workspaces = await _dbService.listWorkspaces();
