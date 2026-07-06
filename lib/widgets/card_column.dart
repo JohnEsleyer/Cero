@@ -145,23 +145,22 @@ class _CardColumnState extends State<CardColumn> {
     return Column(
       children: [
         Expanded(
-          child: ReorderableListView.builder(
-            controller: widget.scrollController,
+          child: ReorderableListView(
+            scrollController: widget.scrollController,
             padding: const EdgeInsets.fromLTRB(20, 8, 20, 100),
-            itemCount: widget.cards.length,
             onReorder: _onReorder,
-            itemBuilder: (context, index) {
-              final card = widget.cards[index];
-              return Column(
-                key: ValueKey(card.id),
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  _buildInsertButton(index),
-                  _buildCard(card, index),
-                  if (index == widget.cards.length - 1) _buildInsertButton(index + 1),
-                ],
-              );
-            },
+            children: [
+              for (final entry in widget.cards.asMap().entries)
+                Column(
+                  key: ValueKey(entry.value.id),
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    _buildInsertButton(entry.key),
+                    _buildCard(entry.value, entry.key),
+                    if (entry.key == widget.cards.length - 1) _buildInsertButton(entry.key + 1),
+                  ],
+                ),
+            ],
           ),
         ),
       ],
@@ -233,10 +232,12 @@ class _CardColumnState extends State<CardColumn> {
   }
 
   Widget _buildCardContent(models.Card card) {
+    final index = _cardIndex(card) + 1;
     switch (card.type) {
       case 'image':
         return ImageCard(
           card: card,
+          cardIndex: index,
           onContentChanged: (content) => widget.onCardUpdated(card.id, content),
           onDelete: () => widget.onCardDeleted(card.id),
           onMoveUp: _cardIndex(card) > 0 ? () => _moveCard(_cardIndex(card), -1) : null,
@@ -247,7 +248,7 @@ class _CardColumnState extends State<CardColumn> {
           card: card,
           allPages: widget.allPages,
           currentPage: widget.selectedPage,
-          cardIndex: _cardIndex(card) + 1,
+          cardIndex: index,
           onNavigate: widget.onNavigateToPage,
           onContentChanged: (content) => widget.onCardUpdated(card.id, content),
           onCreateNewPage: widget.onCreateNewPage,
@@ -258,6 +259,7 @@ class _CardColumnState extends State<CardColumn> {
       case 'code':
         return CodeCard(
           card: card,
+          cardIndex: index,
           onContentChanged: (content) => widget.onCardUpdated(card.id, content),
           onDelete: () => widget.onCardDeleted(card.id),
           onMoveUp: _cardIndex(card) > 0 ? () => _moveCard(_cardIndex(card), -1) : null,
@@ -266,6 +268,7 @@ class _CardColumnState extends State<CardColumn> {
       case 'sites':
         return SitesCard(
           card: card,
+          cardIndex: index,
           onContentChanged: (content) => widget.onCardUpdated(card.id, content),
           onDelete: () => widget.onCardDeleted(card.id),
           onMoveUp: _cardIndex(card) > 0 ? () => _moveCard(_cardIndex(card), -1) : null,
@@ -274,6 +277,7 @@ class _CardColumnState extends State<CardColumn> {
       default:
         return MarkdownCard(
           card: card,
+          cardIndex: index,
           onContentChanged: (content) => widget.onCardUpdated(card.id, content),
           onDelete: () => widget.onCardDeleted(card.id),
           onMoveUp: _cardIndex(card) > 0 ? () => _moveCard(_cardIndex(card), -1) : null,

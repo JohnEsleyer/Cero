@@ -22,6 +22,28 @@ class PendingConnection {
   PendingConnection(this.socket, this.remoteAddress, this.completer);
 }
 
+class DiscoveredServer {
+  final String ip;
+  final int port;
+  final String deviceName;
+  final String app;
+  DiscoveredServer({
+    required this.ip,
+    required this.port,
+    required this.deviceName,
+    required this.app,
+  });
+
+  factory DiscoveredServer.fromMap(Map<String, dynamic> map) {
+    return DiscoveredServer(
+      ip: map['ip'] ?? '',
+      port: map['port'] ?? 0,
+      deviceName: map['deviceName'] ?? 'Unknown',
+      app: map['app'] ?? '',
+    );
+  }
+}
+
 class ServerService extends ChangeNotifier {
   final DatabaseService _dbService = DatabaseService();
   HttpServer? _httpServer;
@@ -48,6 +70,25 @@ class ServerService extends ChangeNotifier {
   List<PendingConnection> get pendingConnections => _pendingConnections;
   List<DbPage> get pages => _pages;
   DatabaseService get dbService => _dbService;
+
+  // --- Client Mode Properties ---
+
+  bool _isClientMode = false;
+  WebSocket? _clientSocket;
+  bool _isClientConnected = false;
+  bool _isClientPaired = false;
+  String _clientError = '';
+  List<Card> _remoteCards = [];
+  final Map<String, Completer<List<Card>>> _fetchCardsCompleters = {};
+  final List<DiscoveredServer> _discoveredServers = [];
+  RawDatagramSocket? _udpDiscoverySocket;
+
+  bool get isClientMode => _isClientMode;
+  bool get isClientConnected => _isClientConnected;
+  bool get isClientPaired => _isClientPaired;
+  String get clientError => _clientError;
+  List<Card> get remoteCards => _remoteCards;
+  List<DiscoveredServer> get discoveredServers => _discoveredServers;
 
   // --- Initialization ---
 
@@ -227,6 +268,182 @@ class ServerService extends ChangeNotifier {
     } catch (e) {
       debugPrint('UDP broadcast error: $e');
     }
+  }
+
+  // --- Client Mode: Discovery ---
+
+  Future<void> startDiscovery() async {
+    if (_udpDiscoverySocket != null) return;
+    try {
+      _udpDiscoverySocket = await RawDatagramSocket.bind(InternetAddress.anyIPv4, 0);
+      _udpDiscoverySocket!.broadcastEnabled = true;
+      _udpDiscoverySocket!.joinMulticast(InternetAddress(_multicastAddr));
+      _udpDiscoverySocket!.listen((event) {
+        if (event == RawSocketEvent.read) {
+          final datagram = _udpDiscoverySocket!.receive();
+          if (datagram != null) {
+            try {
+              final data = jsonDecode(utf8.decode(datagram.data));
+              if (data['app'] == 'cero-journal') {
+                final server = DiscoveredServer.fromMap(data);
+                final exists = _discoveredServers.any((s) => s.ip == server.ip);
+                if (!exists) {
+                  _discoveredServers.add(server);
+                  notifyListeners();
+                }
+              }
+            } catch (_) {}
+          }
+        }
+      });
+      debugPrint('Discovery socket listening for beacons');
+    } catch (e) {
+      debugPrint('Error starting discovery: $e');
+    }
+  }
+
+  void stopDiscovery() {
+    _discoveredServers.clear();
+    _udpDiscoverySocket?.close();
+    _udpDiscoverySocket = null;
+    notifyListeners();
+  }
+
+  // --- Client Mode: Connection ---
+
+  Future<bool> connectToHost(String host, int port, String pin) async {
+    try {
+      _clientError = '';
+      final uri = 'ws://$host:$port/ws?pin=$pin';
+      final socket = await WebSocket.connect(uri);
+      _clientSocket = socket;
+      _isClientConnected = true;
+      _isClientPaired = false;
+      notifyListeners();
+
+      socket.listen(
+        (message) {
+          _handleClientModeIncomingMessage(message as String);
+        },
+        onDone: () {
+          _isClientConnected = false;
+          _isClientPaired = false;
+          notifyListeners();
+          debugPrint('Disconnected from host');
+        },
+        onError: (error) {
+          _clientError = error.toString();
+          _isClientConnected = false;
+          _isClientPaired = false;
+          notifyListeners();
+          debugPrint('Client socket error: $error');
+        },
+      );
+
+      return true;
+    } catch (e) {
+      _clientError = e.toString();
+      _isClientConnected = false;
+      notifyListeners();
+      debugPrint('Failed to connect to host: $e');
+      return false;
+    }
+  }
+
+  Future<void> disconnectFromHost() async {
+    _clientSocket?.close(WebSocketStatus.goingAway, 'Client disconnecting');
+    _clientSocket = null;
+    _isClientConnected = false;
+    _isClientPaired = false;
+    _clientError = '';
+    _pages.clear();
+    _remoteCards.clear();
+    notifyListeners();
+  }
+
+  void enterClientMode() {
+    _isClientMode = true;
+    stopServer();
+    notifyListeners();
+  }
+
+  void exitClientMode() {
+    _isClientMode = false;
+    disconnectFromHost();
+    stopDiscovery();
+    loadDatabaseState();
+    notifyListeners();
+  }
+
+  // --- Client Mode: Incoming Message Handler ---
+
+  void _handleClientModeIncomingMessage(String message) {
+    try {
+      final data = jsonDecode(message);
+      final String type = data['type'] ?? '';
+
+      switch (type) {
+        case 'pairing_required':
+          debugPrint('Pairing required, waiting for host approval...');
+          break;
+        case 'pairing_accepted':
+          _isClientPaired = true;
+          notifyListeners();
+          debugPrint('Pairing accepted by host');
+          break;
+        case 'pairing_rejected':
+          _clientError = 'Connection rejected by host';
+          notifyListeners();
+          break;
+        case 'workspace_status':
+          break;
+        case 'sync':
+          final List<dynamic> rawData = data['data'] ?? [];
+          _pages = rawData.map((m) => DbPage.fromMap(Map<String, dynamic>.from(m))).toList();
+          notifyListeners();
+          break;
+        case 'sync_cards':
+          final String pageId = data['page_id'] ?? '';
+          final List<dynamic> rawCards = data['cards'] ?? [];
+          final cards = rawCards.map((c) => Card.fromMap(Map<String, dynamic>.from(c))).toList();
+          _fetchCardsCompleters[pageId]?.complete(cards);
+          _fetchCardsCompleters.remove(pageId);
+          break;
+        case 'sync_side_pages':
+          break;
+        default:
+          debugPrint('Unknown message from host: $type');
+      }
+    } catch (e) {
+      debugPrint('Error handling server message: $e');
+    }
+  }
+
+  // --- Client Mode: Cards ---
+
+  Future<List<Card>> getCards(String pageId) async {
+    if (!_isClientMode || !_isClientPaired) {
+      return await _dbService.getCards(pageId);
+    }
+    final completer = Completer<List<Card>>();
+    _fetchCardsCompleters[pageId] = completer;
+    _clientSocket?.add(jsonEncode({'type': 'fetch_cards', 'page_id': pageId}));
+    try {
+      final result = await completer.future.timeout(const Duration(seconds: 10));
+      return result;
+    } catch (e) {
+      _fetchCardsCompleters.remove(pageId);
+      return [];
+    }
+  }
+
+  Future<List<DbPage>> getSidePages(String parentId) async {
+    if (!_isClientMode || !_isClientPaired) {
+      return await _dbService.getSidePages(parentId);
+    }
+    return _pages
+        .where((p) => p.parentId == parentId && p.relationType == 'sidepage')
+        .toList();
   }
 
   // --- WebSocket Client Handling ---
@@ -566,6 +783,10 @@ class ServerService extends ChangeNotifier {
       createdAt: DateTime.now(),
       updatedAt: DateTime.now(),
     );
+    if (_isClientMode && _isClientPaired) {
+      _clientSocket?.add(jsonEncode({'type': 'add', 'item': newPage.toMap()}));
+      return newPage;
+    }
     await _addItem(newPage, fromRemote: false);
     return newPage;
   }
@@ -589,6 +810,13 @@ class ServerService extends ChangeNotifier {
     required String title,
     required String emoji,
   }) async {
+    if (_isClientMode && _isClientPaired) {
+      _clientSocket?.add(jsonEncode({
+        'type': 'update',
+        'item': {'id': id, 'title': title, 'emoji': emoji},
+      }));
+      return;
+    }
     final index = _pages.indexWhere((p) => p.id == id);
     if (index != -1) {
       final updatedPage = _pages[index].copyWith(
@@ -630,6 +858,10 @@ class ServerService extends ChangeNotifier {
   }
 
   Future<void> deletePage(String id) async {
+    if (_isClientMode && _isClientPaired) {
+      _clientSocket?.add(jsonEncode({'type': 'delete', 'id': id}));
+      return;
+    }
     await _archiveItem(id, fromRemote: false);
   }
 
@@ -645,6 +877,10 @@ class ServerService extends ChangeNotifier {
   }
 
   Future<void> restorePage(String id) async {
+    if (_isClientMode && _isClientPaired) {
+      _clientSocket?.add(jsonEncode({'type': 'restore', 'id': id}));
+      return;
+    }
     await _restoreItem(id, fromRemote: false);
   }
 
@@ -660,6 +896,14 @@ class ServerService extends ChangeNotifier {
   }
 
   Future<void> movePage(String id, String? newParentId) async {
+    if (_isClientMode && _isClientPaired) {
+      _clientSocket?.add(jsonEncode({
+        'type': 'move',
+        'id': id,
+        'parent_id': newParentId ?? '',
+      }));
+      return;
+    }
     await _moveItem(id, newParentId, fromRemote: false);
   }
 
@@ -705,6 +949,19 @@ class ServerService extends ChangeNotifier {
     required String type,
     required String content,
   }) async {
+    if (_isClientMode && _isClientPaired) {
+      final card = Card(
+        id: generateId(),
+        pageId: pageId,
+        type: type,
+        content: content,
+        sortOrder: 0,
+        createdAt: DateTime.now(),
+        updatedAt: DateTime.now(),
+      );
+      _clientSocket?.add(jsonEncode({'type': 'add_card', 'item': card.toMap()}));
+      return;
+    }
     final cards = await _dbService.getCards(pageId);
     final maxOrder = cards.isEmpty ? 0 : cards.map((c) => c.sortOrder).reduce((a, b) => a > b ? a : b) + 1;
 
@@ -735,6 +992,13 @@ class ServerService extends ChangeNotifier {
     required String id,
     required String content,
   }) async {
+    if (_isClientMode && _isClientPaired) {
+      _clientSocket?.add(jsonEncode({
+        'type': 'update_card',
+        'item': {'id': id, 'content': content},
+      }));
+      return;
+    }
     final card = await _dbService.getCard(id);
     if (card == null) return;
 
@@ -758,11 +1022,24 @@ class ServerService extends ChangeNotifier {
   }
 
   Future<void> deleteCard(String cardId) async {
+    if (_isClientMode && _isClientPaired) {
+      _clientSocket?.add(jsonEncode({'type': 'delete_card', 'id': cardId}));
+      return;
+    }
     await _deleteCard(cardId, fromRemote: false);
   }
 
   Future<void> reorderCards({required List<String> cardIds}) async {
     if (cardIds.isEmpty) return;
+    if (_isClientMode && _isClientPaired) {
+      final card = await _dbService.getCard(cardIds.first);
+      _clientSocket?.add(jsonEncode({
+        'type': 'reorder_cards',
+        'page_id': card?.pageId ?? '',
+        'order': cardIds,
+      }));
+      return;
+    }
     final card = await _dbService.getCard(cardIds.first);
     if (card == null) return;
     await _reorderCards(card.pageId, cardIds, fromRemote: false);

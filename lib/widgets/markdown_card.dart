@@ -10,6 +10,7 @@ class MarkdownCard extends StatefulWidget {
   final VoidCallback? onDelete;
   final VoidCallback? onMoveUp;
   final VoidCallback? onMoveDown;
+  final int? cardIndex;
 
   const MarkdownCard({
     super.key,
@@ -18,6 +19,7 @@ class MarkdownCard extends StatefulWidget {
     this.onDelete,
     this.onMoveUp,
     this.onMoveDown,
+    this.cardIndex,
   });
 
   @override
@@ -96,6 +98,24 @@ class _MarkdownCardState extends State<MarkdownCard> {
       ),
       child: Row(
         children: [
+          if (widget.cardIndex != null) ...[
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+              decoration: BoxDecoration(
+                color: const Color(0xFF818CF8).withOpacity(0.1),
+                borderRadius: BorderRadius.circular(4),
+              ),
+              child: Text(
+                '#${widget.cardIndex}',
+                style: const TextStyle(
+                  fontSize: 9,
+                  color: Color(0xFF818CF8),
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+            const SizedBox(width: 6),
+          ],
           GestureDetector(
             onTap: _openImmersiveEditor,
             child: Container(

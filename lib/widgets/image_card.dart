@@ -8,6 +8,7 @@ class ImageCard extends StatelessWidget {
   final VoidCallback? onDelete;
   final VoidCallback? onMoveUp;
   final VoidCallback? onMoveDown;
+  final int? cardIndex;
 
   const ImageCard({
     super.key,
@@ -16,6 +17,7 @@ class ImageCard extends StatelessWidget {
     this.onDelete,
     this.onMoveUp,
     this.onMoveDown,
+    this.cardIndex,
   });
 
   @override
@@ -47,6 +49,24 @@ class ImageCard extends StatelessWidget {
       ),
       child: Row(
         children: [
+          if (cardIndex != null) ...[
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+              decoration: BoxDecoration(
+                color: const Color(0xFF818CF8).withOpacity(0.1),
+                borderRadius: BorderRadius.circular(4),
+              ),
+              child: Text(
+                '#$cardIndex',
+                style: const TextStyle(
+                  fontSize: 9,
+                  color: Color(0xFF818CF8),
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+            const SizedBox(width: 6),
+          ],
           const Icon(Icons.image_outlined, size: 16, color: Color(0xFF64748B)),
           const SizedBox(width: 6),
           const Text('Image', style: TextStyle(fontSize: 12, color: Color(0xFF64748B))),
