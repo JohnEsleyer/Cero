@@ -61,10 +61,12 @@ class _MainJournalScreenState extends State<MainJournalScreen> {
   final List<String> _navigationHistory = [];
   final TextEditingController _titleController = TextEditingController();
   final FocusNode _titleFocusNode = FocusNode();
+  final ScrollController _cardScrollController = ScrollController();
   List<models.Card> _pageCards = [];
   List<DbPage> _sidePages = [];
   bool _isRefreshingPage = false;
   Timer? _saveDebounceTimer;
+  List<String> _recentEmojis = [];
 
   // Rich Keyboard-Matching Categorized Emojis Catalog
   final List<Map<String, dynamic>> _emojiCategories = [
@@ -328,18 +330,19 @@ class _MainJournalScreenState extends State<MainJournalScreen> {
     }
   }
 
-  void _createSubpage(
+  Future<DbPage?> _createSubpage(
     String? parentId, {
     String relationType = 'subpage',
   }) async {
-    await _serverService.addPage(
+    final newPage = await _serverService.addPage(
       parentId: parentId,
       relationType: relationType,
       title: 'New Page',
       emoji: '📝',
     );
 
-    final newPage = _serverService.pages.last;
+    if (newPage == null) return null;
+
     await _serverService.addCard(
       pageId: newPage.id,
       type: 'markdown',
@@ -353,6 +356,8 @@ class _MainJournalScreenState extends State<MainJournalScreen> {
         _expandedPageIds.add(parentId);
       });
     }
+
+    return newPage;
   }
 
   void _archiveSelectedPage(String id) {
@@ -467,6 +472,7 @@ class _MainJournalScreenState extends State<MainJournalScreen> {
     if (_selectedPage == null) return;
 
     String currentCategory = 'smileys';
+    String emojiSearchQuery = '';
 
     showModalBottomSheet(
       context: context,
@@ -477,95 +483,198 @@ class _MainJournalScreenState extends State<MainJournalScreen> {
       ),
       builder: (context) => StatefulBuilder(
         builder: (context, setSheetState) {
-          final activeCategoryData = _emojiCategories.firstWhere(
-            (cat) => cat['id'] == currentCategory,
-            orElse: () => _emojiCategories.first,
-          );
-          final List<String> currentEmojis = List<String>.from(activeCategoryData['emojis']);
+          List<String> allEmojis = [];
+          if (emojiSearchQuery.isNotEmpty) {
+            final q = emojiSearchQuery.toLowerCase();
+            for (final cat in _emojiCategories) {
+              for (final e in List<String>.from(cat['emojis'])) {
+                if (e.toLowerCase().contains(q)) {
+                  allEmojis.add(e);
+                }
+              }
+            }
+          } else {
+            final activeCategoryData = _emojiCategories.firstWhere(
+              (cat) => cat['id'] == currentCategory,
+              orElse: () => _emojiCategories.first,
+            );
+            allEmojis = List<String>.from(activeCategoryData['emojis']);
+          }
 
           return Container(
-            height: MediaQuery.of(context).size.height * 0.65,
+            height: MediaQuery.of(context).size.height * 0.70,
             padding: const EdgeInsets.symmetric(vertical: 20),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Padding(
-                  padding: EdgeInsets.symmetric(horizontal: 20),
-                  child: Text(
-                    'Select Emoji Icon',
-                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                  ),
-                ),
-                const SizedBox(height: 12),
-                // Categories Tab Bar
-                SingleChildScrollView(
-                  scrollDirection: Axis.horizontal,
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 20),
                   child: Row(
-                    children: _emojiCategories.map((cat) {
-                      final isActive = cat['id'] == currentCategory;
-                      return Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 4),
-                        child: TextButton(
-                          onPressed: () {
-                            setSheetState(() {
-                              currentCategory = cat['id'] as String;
-                            });
-                          },
-                          style: TextButton.styleFrom(
-                            backgroundColor: isActive
-                                ? const Color(0xFF818CF8).withOpacity(0.15)
-                                : Colors.transparent,
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                          ),
-                          child: Text(
-                            cat['label'].toString().split(' ').first,
-                            style: TextStyle(
-                              color: isActive ? const Color(0xFF818CF8) : Colors.grey,
-                              fontWeight: isActive ? FontWeight.bold : FontWeight.normal,
-                              fontSize: 12,
-                            ),
-                          ),
+                    children: [
+                      const Text(
+                        'Select Emoji Icon',
+                        style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                      ),
+                      const Spacer(),
+                      if (_recentEmojis.isNotEmpty)
+                        Text(
+                          '${_recentEmojis.length} recent',
+                          style: const TextStyle(fontSize: 10, color: Color(0xFF64748B)),
                         ),
-                      );
-                    }).toList(),
+                    ],
                   ),
                 ),
-                const SizedBox(height: 12),
-                const Divider(height: 1, color: Color(0xFF2D2D2D)),
-                // Grid of Active Emojis List
-                Expanded(
-                  child: GridView.builder(
-                    padding: const EdgeInsets.all(20),
-                    gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                      crossAxisCount: 6,
-                      mainAxisSpacing: 10,
-                      crossAxisSpacing: 10,
-                    ),
-                    itemCount: currentEmojis.length,
-                    itemBuilder: (context, index) {
-                      final emoji = currentEmojis[index].trim();
-                      return InkWell(
-                        onTap: () {
-                          setState(() {
-                            _selectedPage = _selectedPage!.copyWith(emoji: emoji);
-                          });
-                          _saveCurrentPageImmediate();
-                          Navigator.pop(context);
-                        },
+                const SizedBox(height: 8),
+                // Search bar
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 20),
+                  child: TextField(
+                    autofocus: false,
+                    onChanged: (v) => setSheetState(() => emojiSearchQuery = v),
+                    style: const TextStyle(color: Colors.white, fontSize: 14),
+                    decoration: InputDecoration(
+                      hintText: 'Search emojis...',
+                      hintStyle: TextStyle(color: Colors.grey.shade600),
+                      prefixIcon: const Icon(Icons.search, color: Colors.grey, size: 18),
+                      isDense: true,
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                      filled: true,
+                      fillColor: const Color(0xFF2A2A2A),
+                      border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(8),
-                        child: Center(
-                          child: Text(
-                            emoji,
-                            style: const TextStyle(fontSize: 26),
-                          ),
-                        ),
-                      );
-                    },
+                        borderSide: const BorderSide(color: Color(0xFF3E3E3E)),
+                      ),
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(8),
+                        borderSide: const BorderSide(color: Color(0xFF3E3E3E)),
+                      ),
+                      focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(8),
+                        borderSide: const BorderSide(color: Color(0xFF818CF8)),
+                      ),
+                    ),
                   ),
+                ),
+                const SizedBox(height: 8),
+                // Recent emojis
+                if (_recentEmojis.isNotEmpty && emojiSearchQuery.isEmpty) ...[
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 20),
+                    child: Row(
+                      children: [
+                        const Text(
+                          'Recent',
+                          style: TextStyle(fontSize: 10, color: Color(0xFF64748B), fontWeight: FontWeight.bold),
+                        ),
+                        const Spacer(),
+                        GestureDetector(
+                          onTap: () => setSheetState(() => _recentEmojis.clear()),
+                          child: const Text('Clear', style: TextStyle(fontSize: 10, color: Color(0xFF818CF8))),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  SizedBox(
+                    height: 36,
+                    child: ListView.builder(
+                      scrollDirection: Axis.horizontal,
+                      padding: const EdgeInsets.symmetric(horizontal: 20),
+                      itemCount: _recentEmojis.length,
+                      itemBuilder: (_, i) {
+                        final e = _recentEmojis[i];
+                        return InkWell(
+                          onTap: () {
+                            setState(() {
+                              _selectedPage = _selectedPage!.copyWith(emoji: e);
+                            });
+                            _saveCurrentPageImmediate();
+                            Navigator.pop(context);
+                          },
+                          borderRadius: BorderRadius.circular(6),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 4),
+                            alignment: Alignment.center,
+                            child: Text(e, style: const TextStyle(fontSize: 22)),
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                  const Divider(height: 12, color: Color(0xFF2D2D2D)),
+                ],
+                // Categories Tab Bar
+                if (emojiSearchQuery.isEmpty)
+                  SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    child: Row(
+                      children: _emojiCategories.map((cat) {
+                        final isActive = cat['id'] == currentCategory;
+                        return Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 4),
+                          child: TextButton(
+                            onPressed: () {
+                              setSheetState(() {
+                                currentCategory = cat['id'] as String;
+                              });
+                            },
+                            style: TextButton.styleFrom(
+                              backgroundColor: isActive
+                                  ? const Color(0xFF818CF8).withOpacity(0.15)
+                                  : Colors.transparent,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                            ),
+                            child: Text(
+                              cat['label'].toString().split(' ').first,
+                              style: TextStyle(
+                                color: isActive ? const Color(0xFF818CF8) : Colors.grey,
+                                fontWeight: isActive ? FontWeight.bold : FontWeight.normal,
+                                fontSize: 12,
+                              ),
+                            ),
+                          ),
+                        );
+                      }).toList(),
+                    ),
+                  ),
+                if (emojiSearchQuery.isEmpty)
+                  const Divider(height: 1, color: Color(0xFF2D2D2D)),
+                // Grid of Emojis
+                Expanded(
+                  child: allEmojis.isEmpty && emojiSearchQuery.isNotEmpty
+                      ? const Center(
+                          child: Text('No emojis match your search', style: TextStyle(color: Colors.grey, fontSize: 13)),
+                        )
+                      : GridView.builder(
+                          padding: const EdgeInsets.all(20),
+                          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                            crossAxisCount: 6,
+                            mainAxisSpacing: 10,
+                            crossAxisSpacing: 10,
+                          ),
+                          itemCount: allEmojis.length,
+                          itemBuilder: (context, index) {
+                            final emoji = allEmojis[index].trim();
+                            return InkWell(
+                              onTap: () {
+                                setState(() {
+                                  _selectedPage = _selectedPage!.copyWith(emoji: emoji);
+                                });
+                                _recentEmojis = [emoji, ..._recentEmojis.where((e) => e != emoji)].take(8).toList();
+                                _saveCurrentPageImmediate();
+                                Navigator.pop(context);
+                              },
+                              borderRadius: BorderRadius.circular(8),
+                              child: Center(
+                                child: Text(emoji, style: const TextStyle(fontSize: 26)),
+                              ),
+                            );
+                          },
+                        ),
                 ),
               ],
             ),
@@ -696,7 +805,14 @@ class _MainJournalScreenState extends State<MainJournalScreen> {
         .where((p) => p.parentId == null && p.relationType != 'sidepage')
         .toList();
 
-    return Scaffold(
+    return PopScope(
+      canPop: _navigationHistory.isEmpty,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop && _navigationHistory.isNotEmpty) {
+          _goBack();
+        }
+      },
+      child: Scaffold(
       appBar: AppBar(
         leading: (_selectedPage != null && _navigationHistory.isNotEmpty)
             ? IconButton(
@@ -811,6 +927,7 @@ class _MainJournalScreenState extends State<MainJournalScreen> {
       body: _selectedPage == null
           ? _buildDashboard(rootPages)
           : _buildPageEditor(),
+      ),
     );
   }
 
@@ -1479,37 +1596,47 @@ class _MainJournalScreenState extends State<MainJournalScreen> {
             ],
           ),
         ),
-        Expanded(
-          child: CardColumn(
-            cards: _pageCards,
-            allPages: _serverService.pages,
-            selectedPage: _selectedPage!,
-            onNavigateToPage: _selectPage,
-            onCardUpdated: (cardId, content) async {
-              await _serverService.updateCard(id: cardId, content: content);
-              _loadCardsForPage(_selectedPage!.id);
-            },
-            onCardAdded: (pageId, type, content) async {
-              await _serverService.addCard(
-                pageId: pageId,
-                type: type,
-                content: content,
-              );
-              _loadCardsForPage(pageId);
-            },
-            onCardDeleted: (cardId) async {
-              await _serverService.deleteCard(cardId);
-              _loadCardsForPage(_selectedPage!.id);
-            },
-            onCardsReordered: (cardIds) async {
-              await _serverService.reorderCards(cardIds: cardIds);
-              _loadCardsForPage(_selectedPage!.id);
-            },
-            onCreateNewPage: (parentId) {
-              _createSubpage(parentId);
-            },
+          Expanded(
+            child: CardColumn(
+              cards: _pageCards,
+              allPages: _serverService.pages,
+              selectedPage: _selectedPage!,
+              scrollController: _cardScrollController,
+              onNavigateToPage: _selectPage,
+              onCardUpdated: (cardId, content) async {
+                await _serverService.updateCard(id: cardId, content: content);
+                _loadCardsForPage(_selectedPage!.id);
+              },
+              onCardAdded: (pageId, type, content) async {
+                await _serverService.addCard(
+                  pageId: pageId,
+                  type: type,
+                  content: content,
+                );
+                _loadCardsForPage(pageId);
+                WidgetsBinding.instance.addPostFrameCallback((_) {
+                  if (_cardScrollController.hasClients) {
+                    _cardScrollController.animateTo(
+                      _cardScrollController.position.maxScrollExtent,
+                      duration: const Duration(milliseconds: 300),
+                      curve: Curves.easeOut,
+                    );
+                  }
+                });
+              },
+              onCardDeleted: (cardId) async {
+                await _serverService.deleteCard(cardId);
+                _loadCardsForPage(_selectedPage!.id);
+              },
+              onCardsReordered: (cardIds) async {
+                await _serverService.reorderCards(cardIds: cardIds);
+                _loadCardsForPage(_selectedPage!.id);
+              },
+              onCreateNewPage: (parentId) async {
+                return await _createSubpage(parentId);
+              },
+            ),
           ),
-        ),
       ],
     );
   }

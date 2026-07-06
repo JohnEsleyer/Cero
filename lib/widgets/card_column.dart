@@ -16,7 +16,8 @@ class CardColumn extends StatefulWidget {
   final Future<void> Function(String pageId, String type, String content) onCardAdded;
   final Future<void> Function(String cardId) onCardDeleted;
   final Future<void> Function(List<String> cardIds) onCardsReordered;
-  final ValueChanged<String>? onCreateNewPage;
+  final Future<DbPage?> Function(String parentId)? onCreateNewPage;
+  final ScrollController? scrollController;
 
   const CardColumn({
     super.key,
@@ -29,6 +30,7 @@ class CardColumn extends StatefulWidget {
     required this.onCardDeleted,
     required this.onCardsReordered,
     this.onCreateNewPage,
+    this.scrollController,
   });
 
   @override
@@ -144,6 +146,7 @@ class _CardColumnState extends State<CardColumn> {
       children: [
         Expanded(
           child: ReorderableListView.builder(
+            controller: widget.scrollController,
             padding: const EdgeInsets.fromLTRB(20, 8, 20, 100),
             itemCount: widget.cards.length,
             onReorder: _onReorder,
@@ -243,6 +246,8 @@ class _CardColumnState extends State<CardColumn> {
         return SubpageLinkCard(
           card: card,
           allPages: widget.allPages,
+          currentPage: widget.selectedPage,
+          cardIndex: _cardIndex(card) + 1,
           onNavigate: widget.onNavigateToPage,
           onContentChanged: (content) => widget.onCardUpdated(card.id, content),
           onCreateNewPage: widget.onCreateNewPage,

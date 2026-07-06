@@ -97,6 +97,11 @@ class _SitesCardState extends State<SitesCard> {
       });
     } catch (e) {
       debugPrint('Error starting card background server: $e');
+      // Fallback: use data URI to render HTML in a webview
+      setState(() {
+        _backgroundServerUrl = 'data:text/html;charset=utf-8,${Uri.encodeComponent(_html)}';
+        _isLive = true;
+      });
     }
   }
 
@@ -373,6 +378,9 @@ class _SitesSandboxWorkspaceState extends State<SitesSandboxWorkspace> {
       });
     } catch (e) {
       debugPrint('Error starting temporary HTTP server: $e');
+      setState(() {
+        _tempServerUrl = 'data:text/html;charset=utf-8,${Uri.encodeComponent(_htmlController.text)}';
+      });
     }
   }
 

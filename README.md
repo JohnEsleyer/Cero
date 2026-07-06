@@ -54,6 +54,10 @@ Offline-first, block-based card journal with multi-workspace support and real-ti
 | `lib/services/server_service.dart` | WebSocket server, UDP beacon, sync engine |
 | `lib/main.dart` | App entry point, UI shell |
 
+## Known Issues
+
+See the [root README (Known Issues)](../README.md#10-known-issues--planned-solutions) for the full list. Android-specific issues: back-button navigation (#10.7), database size display (#10.6), and local server failures (#10.9).
+
 ## Getting Started
 
 ```bash

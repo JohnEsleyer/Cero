@@ -5,23 +5,27 @@ import '../models/card_model.dart' as models;
 class SubpageLinkCard extends StatefulWidget {
   final models.Card card;
   final List<DbPage> allPages;
+  final DbPage? currentPage;
   final ValueChanged<DbPage> onNavigate;
   final ValueChanged<String> onContentChanged;
-  final ValueChanged<String>? onCreateNewPage;
+  final Future<DbPage?> Function(String parentId)? onCreateNewPage;
   final VoidCallback? onDelete;
   final VoidCallback? onMoveUp;
   final VoidCallback? onMoveDown;
+  final int? cardIndex;
 
   const SubpageLinkCard({
     super.key,
     required this.card,
     required this.allPages,
+    this.currentPage,
     required this.onNavigate,
     required this.onContentChanged,
     this.onCreateNewPage,
     this.onDelete,
     this.onMoveUp,
     this.onMoveDown,
+    this.cardIndex,
   });
 
   @override
@@ -41,11 +45,28 @@ class _SubpageLinkCardState extends State<SubpageLinkCard> {
   }
 
   List<DbPage> get _candidates {
-    return widget.allPages
-        .where(
-          (p) => p.id != widget.card.pageId && p.relationType != 'sidepage',
-        )
-        .toList();
+    final currentPage = widget.currentPage;
+    if (currentPage == null) {
+      return widget.allPages
+          .where(
+            (p) => p.id != widget.card.pageId && p.relationType != 'sidepage',
+          )
+          .toList();
+    }
+
+    final directChildrenIds = widget.allPages
+        .where((p) =>
+            p.parentId == currentPage.id && p.relationType != 'sidepage')
+        .map((p) => p.id)
+        .toSet();
+
+    return widget.allPages.where((p) {
+      if (p.id == widget.card.pageId || p.relationType == 'sidepage') {
+        return false;
+      }
+      if (p.parentId == currentPage.id) return true;
+      return directChildrenIds.contains(p.parentId);
+    }).toList();
   }
 
   void _handleTap() {
@@ -55,7 +76,7 @@ class _SubpageLinkCardState extends State<SubpageLinkCard> {
     }
   }
 
-  void _handleDoubleTap() {
+  void _openPicker() {
     setState(() => _isEditing = true);
     _showPagePicker();
   }
@@ -64,29 +85,26 @@ class _SubpageLinkCardState extends State<SubpageLinkCard> {
   Widget build(BuildContext context) {
     final linked = _linkedPage;
 
-    return GestureDetector(
-      onDoubleTap: _handleDoubleTap,
-      child: Card(
-        margin: const EdgeInsets.symmetric(vertical: 4),
-        color: const Color(0xFF1E1E1E),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(8),
-          side: const BorderSide(color: Color(0xFF2E2E2E), width: 1),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            _buildHeader(),
-            linked != null && !_isEditing
-                ? _buildLinkTile(linked)
-                : _buildPlaceholder(context),
-          ],
-        ),
+    return Card(
+      margin: const EdgeInsets.symmetric(vertical: 4),
+      color: const Color(0xFF1E1E1E),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(8),
+        side: const BorderSide(color: Color(0xFF2E2E2E), width: 1),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _buildHeader(linked),
+          linked != null && !_isEditing
+              ? _buildLinkTile(linked)
+              : _buildPlaceholder(context),
+        ],
       ),
     );
   }
 
-  Widget _buildHeader() {
+  Widget _buildHeader(DbPage? linked) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: const BoxDecoration(
@@ -96,6 +114,24 @@ class _SubpageLinkCardState extends State<SubpageLinkCard> {
       ),
       child: Row(
         children: [
+          if (widget.cardIndex != null) ...[
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+              decoration: BoxDecoration(
+                color: const Color(0xFF818CF8).withOpacity(0.1),
+                borderRadius: BorderRadius.circular(4),
+              ),
+              child: Text(
+                '#${widget.cardIndex}',
+                style: const TextStyle(
+                  fontSize: 9,
+                  color: Color(0xFF818CF8),
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+            const SizedBox(width: 6),
+          ],
           const Icon(Icons.link, size: 16, color: Color(0xFF64748B)),
           const SizedBox(width: 6),
           const Text(
@@ -103,6 +139,20 @@ class _SubpageLinkCardState extends State<SubpageLinkCard> {
             style: TextStyle(fontSize: 12, color: Color(0xFF64748B)),
           ),
           const Spacer(),
+          IconButton(
+            icon: const Icon(Icons.settings_outlined, size: 16),
+            padding: const EdgeInsets.all(2),
+            constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
+            color: const Color(0xFF818CF8),
+            tooltip: 'Configure link',
+            onPressed: () {
+              if (linked != null) {
+                _openPicker();
+              } else {
+                _showPagePicker();
+              }
+            },
+          ),
           if (widget.onMoveUp != null)
             _actionBtn(Icons.arrow_upward, widget.onMoveUp!),
           if (widget.onMoveDown != null)
@@ -121,7 +171,6 @@ class _SubpageLinkCardState extends State<SubpageLinkCard> {
   Widget _buildLinkTile(DbPage page) {
     return InkWell(
       onTap: _handleTap,
-      onDoubleTap: _handleDoubleTap,
       borderRadius: const BorderRadius.vertical(bottom: Radius.circular(8)),
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
@@ -145,7 +194,7 @@ class _SubpageLinkCardState extends State<SubpageLinkCard> {
                   ),
                   const SizedBox(height: 2),
                   Text(
-                    'Tap to open · Double-tap to edit link',
+                    'Tap to open',
                     style: TextStyle(color: Colors.grey.shade500, fontSize: 11),
                   ),
                 ],
@@ -185,11 +234,15 @@ class _SubpageLinkCardState extends State<SubpageLinkCard> {
           setState(() => _isEditing = false);
           Navigator.pop(ctx);
         },
-        onCreateNew: () {
+        onCreateNew: () async {
           Navigator.pop(ctx);
           if (widget.onCreateNewPage != null) {
-            widget.onCreateNewPage!(widget.card.pageId);
+            final newPage = await widget.onCreateNewPage!(widget.card.pageId);
+            if (newPage != null) {
+              widget.onContentChanged(newPage.id);
+            }
           }
+          if (mounted) setState(() => _isEditing = false);
         },
       ),
     ).then((_) {

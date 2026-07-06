@@ -547,7 +547,7 @@ class ServerService extends ChangeNotifier {
 
   // --- Page Action Handlers ---
 
-  Future<void> addPage({
+  Future<DbPage> addPage({
     String? parentId,
     String relationType = 'subpage',
     required String title,
@@ -563,6 +563,7 @@ class ServerService extends ChangeNotifier {
       updatedAt: DateTime.now(),
     );
     await _addItem(newPage, fromRemote: false);
+    return newPage;
   }
 
   Future<void> _addItem(DbPage page, {required bool fromRemote}) async {

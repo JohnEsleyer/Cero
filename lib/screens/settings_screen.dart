@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:path/path.dart' as p;
@@ -338,6 +339,38 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
+  Widget _buildDatabaseSize() {
+    if (_dbPathInfo.isEmpty) return const SizedBox();
+    try {
+      final file = File(_dbPathInfo);
+      if (!file.existsSync()) return const SizedBox();
+      final sizeBytes = file.lengthSync();
+      String sizeStr;
+      if (sizeBytes < 1024) {
+        sizeStr = '$sizeBytes B';
+      } else if (sizeBytes < 1024 * 1024) {
+        sizeStr = '${(sizeBytes / 1024).toStringAsFixed(1)} KB';
+      } else {
+        sizeStr = '${(sizeBytes / (1024 * 1024)).toStringAsFixed(1)} MB';
+      }
+      return Padding(
+        padding: const EdgeInsets.only(bottom: 8),
+        child: Row(
+          children: [
+            const Icon(Icons.storage, size: 14, color: Color(0xFF818CF8)),
+            const SizedBox(width: 6),
+            Text(
+              'Database Size: $sizeStr',
+              style: const TextStyle(fontSize: 12, color: Color(0xFFCBD5E1)),
+            ),
+          ],
+        ),
+      );
+    } catch (_) {
+      return const SizedBox();
+    }
+  }
+
   Widget _buildPathCard() {
     return Card(
       color: const Color(0xFF202020),
@@ -376,6 +409,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ),
               ),
             ),
+            _buildDatabaseSize(),
             const SizedBox(height: 10),
             const Text(
               'Your mobile device holds the primary source of truth. You can back up this database folder directly or overwrite it using a single file.',
