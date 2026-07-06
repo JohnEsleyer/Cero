@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 import '../models/page_model.dart';
 import '../models/card_model.dart';
 import 'database_service.dart';
+import 'multicast_lock_helper.dart';
 
 class ClientConnection {
   final WebSocket socket;
@@ -122,6 +123,7 @@ class ServerService extends ChangeNotifier {
     if (_isRunning) return true;
 
     try {
+      await MulticastLockHelper.acquire();
       await updateLocalIp();
       await loadDatabaseState();
 
@@ -193,6 +195,8 @@ class ServerService extends ChangeNotifier {
 
     await _httpServer?.close(force: true);
     _httpServer = null;
+
+    await MulticastLockHelper.release();
 
     _isRunning = false;
     notifyListeners();
