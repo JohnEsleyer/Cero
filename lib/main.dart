@@ -1109,6 +1109,7 @@ class _MainJournalScreenState extends State<MainJournalScreen> {
             },
             style: ElevatedButton.styleFrom(
               backgroundColor: const Color(0xFF818CF8),
+              foregroundColor: Colors.white,
             ),
             child: const Text('Allow'),
           ),
@@ -1252,6 +1253,7 @@ class _MainJournalScreenState extends State<MainJournalScreen> {
             },
             style: ElevatedButton.styleFrom(
               backgroundColor: Colors.orangeAccent,
+              foregroundColor: Colors.white,
             ),
             child: const Text('Archive'),
           ),
@@ -2409,6 +2411,7 @@ class _MainJournalScreenState extends State<MainJournalScreen> {
                     },
                     style: ElevatedButton.styleFrom(
                       backgroundColor: const Color(0xFF818CF8),
+                      foregroundColor: Colors.white,
                       padding: const EdgeInsets.symmetric(horizontal: 16),
                     ),
                     child: const Text('Connect', style: TextStyle(fontSize: 12)),
@@ -2616,12 +2619,13 @@ class _MainJournalScreenState extends State<MainJournalScreen> {
                       actions: [
                         TextButton(
                           onPressed: () => Navigator.pop(ctx, false),
-                          child: const Text('Cancel'),
+                          child: const Text('Cancel', style: TextStyle(color: Colors.grey)),
                         ),
                         ElevatedButton(
                           onPressed: () => Navigator.pop(ctx, true),
                           style: ElevatedButton.styleFrom(
                             backgroundColor: Colors.redAccent,
+                            foregroundColor: Colors.white,
                           ),
                           child: const Text('Delete Forever'),
                         ),
@@ -2683,6 +2687,7 @@ class _MainJournalScreenState extends State<MainJournalScreen> {
                 label: const Text('Create First Page'),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: const Color(0xFF818CF8),
+                  foregroundColor: Colors.white,
                   padding: const EdgeInsets.symmetric(vertical: 14),
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(8),

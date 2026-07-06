@@ -96,6 +96,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             onPressed: () => Navigator.pop(context, controller.text.trim()),
             style: ElevatedButton.styleFrom(
               backgroundColor: const Color(0xFF818CF8),
+              foregroundColor: Colors.white,
             ),
             child: const Text('Create'),
           ),
@@ -139,7 +140,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
           ElevatedButton(
             onPressed: () => Navigator.pop(context, true),
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent, foregroundColor: Colors.white),
             child: const Text('Delete Permanently'),
           ),
         ],
@@ -252,6 +253,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               onPressed: () => Navigator.pop(context, controller.text.trim()),
               style: ElevatedButton.styleFrom(
                 backgroundColor: const Color(0xFF818CF8),
+                foregroundColor: Colors.white,
               ),
               child: const Text('Import'),
             ),

@@ -38,6 +38,35 @@ class CardColumn extends StatefulWidget {
 }
 
 class _CardColumnState extends State<CardColumn> {
+  bool _showScrollToBottom = false;
+
+  @override
+  void initState() {
+    super.initState();
+    widget.scrollController?.addListener(_scrollListener);
+  }
+
+  @override
+  void dispose() {
+    widget.scrollController?.removeListener(_scrollListener);
+    super.dispose();
+  }
+
+  void _scrollListener() {
+    final sc = widget.scrollController;
+    if (sc == null || !sc.hasClients) {
+      if (_showScrollToBottom) setState(() => _showScrollToBottom = false);
+      return;
+    }
+    final maxScroll = sc.position.maxScrollExtent;
+    final currentScroll = sc.position.pixels;
+    final threshold = 200.0;
+    final shouldShow = maxScroll > 400 && (maxScroll - currentScroll) > threshold;
+    if (shouldShow != _showScrollToBottom) {
+      setState(() => _showScrollToBottom = shouldShow);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     if (widget.cards.isEmpty) {
@@ -142,27 +171,49 @@ class _CardColumnState extends State<CardColumn> {
       );
     }
 
-    return Column(
+    return Stack(
       children: [
-        Expanded(
-          child: ReorderableListView(
-            scrollController: widget.scrollController,
-            padding: const EdgeInsets.fromLTRB(20, 8, 20, 100),
-            onReorder: _onReorder,
-            children: [
-              for (final entry in widget.cards.asMap().entries)
-                Column(
-                  key: ValueKey(entry.value.id),
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    _buildInsertButton(entry.key),
-                    _buildCard(entry.value, entry.key),
-                    if (entry.key == widget.cards.length - 1) _buildInsertButton(entry.key + 1),
-                  ],
-                ),
-            ],
-          ),
+        Column(
+          children: [
+            Expanded(
+              child: ReorderableListView(
+                scrollController: widget.scrollController,
+                padding: const EdgeInsets.fromLTRB(20, 8, 20, 100),
+                onReorder: _onReorder,
+                children: [
+                  for (final entry in widget.cards.asMap().entries)
+                    Column(
+                      key: ValueKey(entry.value.id),
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        _buildInsertButton(entry.key),
+                        _buildCard(entry.value, entry.key),
+                        if (entry.key == widget.cards.length - 1) _buildInsertButton(entry.key + 1),
+                      ],
+                    ),
+                ],
+              ),
+            ),
+          ],
         ),
+        if (_showScrollToBottom)
+          Positioned(
+            right: 20,
+            bottom: 20,
+            child: FloatingActionButton.small(
+              heroTag: null,
+              backgroundColor: const Color(0xFF818CF8),
+              foregroundColor: Colors.white,
+              onPressed: () {
+                widget.scrollController?.animateTo(
+                  widget.scrollController!.position.maxScrollExtent,
+                  duration: const Duration(milliseconds: 300),
+                  curve: Curves.easeOut,
+                );
+              },
+              child: const Icon(Icons.arrow_downward, size: 20),
+            ),
+          ),
       ],
     );
   }
