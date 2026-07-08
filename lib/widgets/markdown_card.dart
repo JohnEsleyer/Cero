@@ -1,6 +1,6 @@
 
 import 'package:flutter/material.dart';
-import 'package:flutter_markdown/flutter_markdown.dart';
+import 'package:gpt_markdown/gpt_markdown.dart';
 import '../models/card_model.dart' as models;
 import 'immersive_markdown_editor.dart';
 
@@ -193,38 +193,12 @@ class _MarkdownCardState extends State<MarkdownCard> {
       onDoubleTap: _openImmersiveEditor,
       child: Padding(
         padding: const EdgeInsets.all(12),
-        child: MarkdownBody(
-          data: content,
-          selectable: true,
-          styleSheet: MarkdownStyleSheet.fromTheme(Theme.of(context)).copyWith(
-            p: const TextStyle(
-              fontSize: 14,
-              height: 1.6,
-              color: Color(0xFFCBD5E1),
-            ),
-            h1: const TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.bold,
-              height: 1.8,
-              color: Colors.white,
-            ),
-            h2: const TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.bold,
-              height: 1.8,
-              color: Colors.white,
-            ),
-            h3: const TextStyle(
-              fontSize: 14,
-              fontWeight: FontWeight.bold,
-              height: 1.8,
-              color: Colors.white,
-            ),
-            code: const TextStyle(
-              fontFamily: 'monospace',
-              fontSize: 12,
-              backgroundColor: Color(0xFF1A1A1A),
-            ),
+        child: GptMarkdown(
+          content,
+          style: const TextStyle(
+            fontSize: 14,
+            height: 1.6,
+            color: Color(0xFFCBD5E1),
           ),
         ),
       ),

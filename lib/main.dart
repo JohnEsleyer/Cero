@@ -458,6 +458,11 @@ class _MainJournalScreenState extends State<MainJournalScreen> {
   void _showEmojiPicker() {
     if (_selectedPage == null) return;
 
+    final parentId = _selectedPage!.parentId;
+    final parentPage = parentId != null
+        ? _serverService.pages.where((p) => p.id == parentId).firstOrNull
+        : null;
+
     showModalBottomSheet(
       context: context,
       backgroundColor: const Color(0xFF202020),
@@ -576,6 +581,25 @@ class _MainJournalScreenState extends State<MainJournalScreen> {
                 padding: const EdgeInsets.symmetric(vertical: 12),
               ),
             ),
+            if (parentPage != null) ...[
+              const SizedBox(height: 10),
+              OutlinedButton.icon(
+                onPressed: () {
+                  setState(() {
+                    _selectedPage = _selectedPage!.copyWith(emoji: parentPage.emoji);
+                  });
+                  _saveCurrentPageImmediate();
+                  Navigator.pop(context);
+                },
+                icon: const Icon(Icons.copy),
+                label: Text('Inherit Parent Icon ("${parentPage.title.isEmpty ? 'Untitled' : parentPage.title}")'),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: const Color(0xFF818CF8),
+                  side: const BorderSide(color: Color(0xFF3E3E3E)),
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                ),
+              ),
+            ],
             const SizedBox(height: 10),
             TextButton.icon(
               onPressed: () {
