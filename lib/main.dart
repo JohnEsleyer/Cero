@@ -9,6 +9,7 @@ import 'models/page_model.dart';
 import 'models/card_model.dart' as models;
 import 'widgets/card_column.dart';
 import 'widgets/page_icon.dart';
+import 'widgets/cero_logo.dart';
 import 'screens/settings_screen.dart';
 
 void main() async {
@@ -1704,6 +1705,8 @@ class _MainJournalScreenState extends State<MainJournalScreen> {
     if (_selectedPage == null) {
       return Row(
         children: [
+          const CeroLogo(size: 18),
+          const SizedBox(width: 8),
           const Text(
             'Cero',
             style: TextStyle(fontWeight: FontWeight.bold, letterSpacing: -0.5),
@@ -2778,7 +2781,7 @@ class _MainJournalScreenState extends State<MainJournalScreen> {
           mainAxisAlignment: MainAxisAlignment.center,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            const Center(child: Text('📓', style: TextStyle(fontSize: 72))),
+            const Center(child: CeroLogo(size: 80)),
             const SizedBox(height: 16),
             const Center(
               child: Text(
