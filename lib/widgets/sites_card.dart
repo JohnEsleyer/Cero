@@ -1,10 +1,56 @@
 
 import 'dart:convert';
 import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../models/card_model.dart' as models;
 import '../services/server_service.dart';
+
+class SitesLivePreviewScreen extends StatelessWidget {
+  final String html;
+  final String name;
+
+  const SitesLivePreviewScreen({
+    super.key,
+    required this.html,
+    required this.name,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: const Color(0xFF121212),
+      appBar: AppBar(
+        backgroundColor: const Color(0xFF1E1E1E),
+        title: Text(
+          name,
+          style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
+        ),
+        elevation: 0,
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back),
+          onPressed: () => Navigator.pop(context),
+        ),
+      ),
+      body: InAppWebView(
+        initialData: InAppWebViewInitialData(
+          data: html.isNotEmpty
+              ? html
+              : "<html><body><p style='color: grey; font-family: sans-serif; text-align: center; margin-top: 100px;'>Empty HTML Content</p></body></html>",
+          mimeType: "text/html",
+          encoding: "utf-8",
+        ),
+        initialSettings: InAppWebViewSettings(
+          isInspectable: kDebugMode,
+          javaScriptEnabled: true,
+          transparentBackground: true,
+        ),
+      ),
+    );
+  }
+}
 
 class SitesCard extends StatefulWidget {
   final models.Card card;
@@ -158,41 +204,39 @@ class _SitesCardState extends State<SitesCard> {
         ),
       ),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           _buildToolbar(),
           InkWell(
-            onTap: _openSandboxWorkspace,
+            onTap: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => SitesLivePreviewScreen(
+                    html: _html,
+                    name: _name,
+                  ),
+                ),
+              );
+            },
             child: Padding(
-              padding: const EdgeInsets.all(12),
+              padding: const EdgeInsets.fromLTRB(12, 12, 4, 12),
               child: Row(
                 children: [
                   Container(
                     width: 40,
                     height: 40,
                     decoration: BoxDecoration(
-                      color: const Color(0xFF818CF8).withOpacity(0.1),
+                      color: const Color(0xFF10B981).withOpacity(0.1),
                       borderRadius: BorderRadius.circular(6),
                     ),
-                    child: Stack(
+                    child: const Stack(
                       alignment: Alignment.center,
                       children: [
-                        const Icon(
+                        Icon(
                           Icons.web,
-                          color: Color(0xFF818CF8),
+                          color: Color(0xFF10B981),
                           size: 24,
-                        ),
-                        Positioned(
-                          top: 4,
-                          right: 4,
-                          child: Container(
-                            width: 8,
-                            height: 8,
-                            decoration: BoxDecoration(
-                              color: _isLive ? Colors.green : Colors.redAccent,
-                              shape: BoxShape.circle,
-                            ),
-                          ),
                         ),
                       ],
                     ),
@@ -204,15 +248,19 @@ class _SitesCardState extends State<SitesCard> {
                       children: [
                         Row(
                           children: [
-                            Text(
-                              _name,
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 14,
-                                fontWeight: FontWeight.bold,
+                            Expanded(
+                              child: Text(
+                                _name,
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
                               ),
                             ),
-                            const SizedBox(width: 8),
+                            const SizedBox(width: 6),
                             Container(
                               padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
                               decoration: BoxDecoration(
@@ -232,17 +280,41 @@ class _SitesCardState extends State<SitesCard> {
                         ),
                         const SizedBox(height: 2),
                         Text(
-                          _isLive && _backgroundServerUrl != null ? _backgroundServerUrl! : _description,
+                          _description,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            color: _isLive ? const Color(0xFF818CF8) : const Color(0xFF64748B),
+                          style: const TextStyle(
+                            color: Color(0xFF64748B),
                             fontSize: 12,
-                            fontFamily: _isLive ? 'monospace' : null,
                           ),
                         ),
                       ],
                     ),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.play_circle_outline, color: Color(0xFF10B981), size: 22),
+                    tooltip: 'Live Preview',
+                    padding: const EdgeInsets.all(6),
+                    constraints: const BoxConstraints(),
+                    onPressed: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => SitesLivePreviewScreen(
+                            html: _html,
+                            name: _name,
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                  const SizedBox(width: 4),
+                  IconButton(
+                    icon: const Icon(Icons.settings_outlined, color: Color(0xFF818CF8), size: 20),
+                    tooltip: 'Configure Site',
+                    padding: const EdgeInsets.all(6),
+                    constraints: const BoxConstraints(),
+                    onPressed: _openSandboxWorkspace,
                   ),
                 ],
               ),
