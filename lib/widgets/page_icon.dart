@@ -14,14 +14,14 @@ class PageIcon extends StatelessWidget {
     this.dbService,
   });
 
-  bool _isEmoji(String text) {
+  bool _isImage(String text) {
     final trimmed = text.trim();
-    if (trimmed.isEmpty) return true;
+    if (trimmed.isEmpty) return false;
     if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
-      return false;
+      return true;
     }
     if (trimmed.startsWith('/') || trimmed.startsWith('file://')) {
-      return false;
+      return true;
     }
     if (trimmed.contains('.') && (
         trimmed.endsWith('.png') ||
@@ -31,18 +31,20 @@ class PageIcon extends StatelessWidget {
         trimmed.endsWith('.webp') ||
         trimmed.endsWith('.svg')
     )) {
-      return false;
+      return true;
     }
-    return true;
+    return false;
   }
 
   @override
   Widget build(BuildContext context) {
     final trimmed = emoji.trim();
-    if (_isEmoji(trimmed)) {
-      return Text(
-        trimmed.isEmpty ? '📝' : trimmed,
-        style: TextStyle(fontSize: size, height: 1.1),
+
+    if (!_isImage(trimmed)) {
+      return Icon(
+        Icons.description_outlined,
+        size: size,
+        color: const Color(0xFFCBD5E1),
       );
     }
 
@@ -53,7 +55,7 @@ class PageIcon extends StatelessWidget {
         width: size,
         height: size,
         fit: BoxFit.cover,
-        errorBuilder: (_, __, ___) => _buildErrorIcon(),
+        errorBuilder: (_, __, ___) => _buildDefaultIcon(),
       );
     } else if (trimmed.startsWith('/') || trimmed.startsWith('file://')) {
       final path = trimmed.startsWith('file://') ? trimmed.substring(7) : trimmed;
@@ -62,7 +64,7 @@ class PageIcon extends StatelessWidget {
         width: size,
         height: size,
         fit: BoxFit.cover,
-        errorBuilder: (_, __, ___) => _buildErrorIcon(),
+        errorBuilder: (_, __, ___) => _buildDefaultIcon(),
       );
     } else if (dbService != null) {
       return FutureBuilder<String?>(
@@ -87,15 +89,15 @@ class PageIcon extends StatelessWidget {
                 width: size,
                 height: size,
                 fit: BoxFit.cover,
-                errorBuilder: (_, __, ___) => _buildErrorIcon(),
+                errorBuilder: (_, __, ___) => _buildDefaultIcon(),
               ),
             );
           }
-          return _buildErrorIcon();
+          return _buildDefaultIcon();
         },
       );
     } else {
-      imageWidget = _buildErrorIcon();
+      imageWidget = _buildDefaultIcon();
     }
 
     return ClipRRect(
@@ -104,11 +106,11 @@ class PageIcon extends StatelessWidget {
     );
   }
 
-  Widget _buildErrorIcon() {
+  Widget _buildDefaultIcon() {
     return Icon(
-      Icons.broken_image_outlined,
+      Icons.description_outlined,
       size: size,
-      color: Colors.grey,
+      color: const Color(0xFFCBD5E1),
     );
   }
 }

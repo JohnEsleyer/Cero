@@ -8,7 +8,8 @@ import 'markdown_card.dart';
 import 'image_card.dart';
 import 'subpage_link_card.dart';
 import 'code_card.dart'; 
-import 'sites_card.dart'; 
+import 'sites_card.dart';
+import 'page_icon.dart';
 
 String _generateId() {
   final rand = Random.secure();
@@ -22,7 +23,7 @@ class CardColumn extends StatefulWidget {
   final DbPage selectedPage;
   final ValueChanged<DbPage> onNavigateToPage;
   final Future<void> Function(String cardId, String content) onCardUpdated;
-  final Future<void> Function(String pageId, String type, String content) onCardAdded;
+  final Future<void> Function(String pageId, String type, String content, {int? insertAt}) onCardAdded;
   final Future<void> Function(String cardId) onCardDeleted;
   final Future<void> Function(List<String> cardIds) onCardsReordered;
   final Future<DbPage?> Function(String parentId)? onCreateNewPage;
@@ -148,6 +149,7 @@ class _CardColumnState extends State<CardColumn> {
                   _emptyPageBlockTrigger('Link', 'subpage_link', Icons.link),
                   _emptyPageBlockTrigger('Code Block', 'code', Icons.code, initialContent: 'javascript\nconsole.log("Hello from Cero Code!");\n'),
                   _emptyPageBlockTrigger('HTML Site', 'sites', Icons.web, initialContent: '{"name": "Interactive Site Widget", "description": "Sandboxed HTML preview widget", "html": "<h1>Welcome directly to Sandboxed Environment!</h1>"}'),
+                  _emptyPageBlockTrigger('Section Divider', 'section', Icons.title_outlined, initialContent: 'New Section'),
                 ],
               ),
             ],
@@ -199,7 +201,7 @@ class _CardColumnState extends State<CardColumn> {
 
   Widget _emptyPageBlockTrigger(String label, String type, IconData icon, {String initialContent = ''}) {
     return ElevatedButton.icon(
-      onPressed: () => widget.onCardAdded(widget.selectedPage.id, type, initialContent),
+      onPressed: () => widget.onCardAdded(widget.selectedPage.id, type, initialContent, insertAt: 0),
       icon: Icon(icon, size: 16),
       label: Text(label),
       style: ElevatedButton.styleFrom(
@@ -237,6 +239,29 @@ class _CardColumnState extends State<CardColumn> {
   }
 
   Widget _buildCard(models.Card card, int index) {
+    if (card.type == 'section') {
+      return _buildSectionDividerCard(card, index);
+    }
+
+    Color leftIndicatorColor = Colors.transparent;
+    switch (card.type) {
+      case 'markdown':
+        leftIndicatorColor = const Color(0xFF71717A);
+        break;
+      case 'image':
+        leftIndicatorColor = const Color(0xFFA855F7);
+        break;
+      case 'subpage_link':
+        leftIndicatorColor = const Color(0xFF3B82F6);
+        break;
+      case 'code':
+        leftIndicatorColor = const Color(0xFFEC4899);
+        break;
+      case 'sites':
+        leftIndicatorColor = const Color(0xFF10B981);
+        break;
+    }
+
     return Container(
       width: double.infinity,
       margin: const EdgeInsets.symmetric(vertical: 4),
@@ -245,11 +270,96 @@ class _CardColumnState extends State<CardColumn> {
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: const Color(0xFF262629)),
       ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(12),
+        child: Container(
+          decoration: BoxDecoration(
+            border: Border(
+              left: BorderSide(color: leftIndicatorColor, width: 4),
+            ),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              _buildCardContent(card),
+              _buildSleekInteractiveCommentStrip(card),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSectionDividerCard(models.Card card, int index) {
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.symmetric(vertical: 16),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _buildCardContent(card),
-          _buildSleekInteractiveCommentStrip(card),
+          Row(
+            children: [
+              const PageIcon(emoji: 'heading', size: 16),
+              const SizedBox(width: 8),
+              Expanded(
+                child: GestureDetector(
+                  onDoubleTap: () async {
+                    final controller = TextEditingController(text: card.content);
+                    final newTitle = await showDialog<String>(
+                      context: context,
+                      builder: (ctx) => AlertDialog(
+                        backgroundColor: const Color(0xFF202020),
+                        title: const Text('Edit Section Header'),
+                        content: TextField(
+                          controller: controller,
+                          autofocus: true,
+                          style: const TextStyle(color: Colors.white),
+                        ),
+                        actions: [
+                          TextButton(
+                            onPressed: () => Navigator.pop(ctx),
+                            child: const Text('Cancel'),
+                          ),
+                          TextButton(
+                            onPressed: () => Navigator.pop(ctx, controller.text.trim()),
+                            child: const Text('Save'),
+                          ),
+                        ],
+                      ),
+                    );
+                    if (newTitle != null && newTitle.isNotEmpty) {
+                      widget.onCardUpdated(card.id, newTitle);
+                    }
+                  },
+                  child: Text(
+                    card.content.toUpperCase(),
+                    style: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w800,
+                      color: Colors.white,
+                      letterSpacing: 1.0,
+                    ),
+                  ),
+                ),
+              ),
+              if (index > 0)
+                IconButton(
+                  icon: const Icon(Icons.keyboard_arrow_up, size: 14, color: Color(0xFF71717A)),
+                  onPressed: () => _moveCard(index, -1),
+                ),
+              if (index < widget.cards.length - 1)
+                IconButton(
+                  icon: const Icon(Icons.keyboard_arrow_down, size: 14, color: Color(0xFF71717A)),
+                  onPressed: () => _moveCard(index, 1),
+                ),
+              IconButton(
+                icon: const Icon(Icons.delete_outline, size: 14, color: Color(0xFFF87171)),
+                onPressed: () => widget.onCardDeleted(card.id),
+              )
+            ],
+          ),
+          const SizedBox(height: 4),
+          const Divider(height: 1, color: Color(0xFF2E2E33)),
         ],
       ),
     );
@@ -393,11 +503,12 @@ class _CardColumnState extends State<CardColumn> {
                 padding: EdgeInsets.all(16),
                 child: Text('Add Block', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16)),
               ),
-              _addBlockOption(ctx, 'Markdown', 'Write formatted text', Icons.text_fields, 'markdown', ''),
-              _addBlockOption(ctx, 'Image', 'Embed visual images', Icons.image_outlined, 'image', ''),
-              _addBlockOption(ctx, 'Subpage Link', 'Create nested references', Icons.link, 'subpage_link', ''),
-              _addBlockOption(ctx, 'Code Block', 'Syntax-highlighted code', Icons.code, 'code', 'javascript\nconsole.log("Hello from Cero Code!");\n'),
-              _addBlockOption(ctx, 'HTML Site', 'Render custom local template widgets', Icons.web, 'sites', '{"name": "Site Widget", "html": "<h1>Hello Cero Sandbox</h1>"}'),
+              _addBlockOption(ctx, 'Markdown', 'Write formatted text', Icons.text_fields, 'markdown', '', index),
+              _addBlockOption(ctx, 'Image', 'Embed visual images', Icons.image_outlined, 'image', '', index),
+              _addBlockOption(ctx, 'Subpage Link', 'Create nested references', Icons.link, 'subpage_link', '', index),
+              _addBlockOption(ctx, 'Code Block', 'Syntax-highlighted code', Icons.code, 'code', 'javascript\nconsole.log("Hello from Cero Code!");\n', index),
+              _addBlockOption(ctx, 'HTML Site', 'Render custom local template widgets', Icons.web, 'sites', '{"name": "Site Widget", "html": "<h1>Hello Cero Sandbox</h1>"}', index),
+              _addBlockOption(ctx, 'Section Divider', 'Full-width section header', Icons.title_outlined, 'section', 'New Section', index),
             ],
           ),
         ),
@@ -405,14 +516,14 @@ class _CardColumnState extends State<CardColumn> {
     );
   }
 
-  Widget _addBlockOption(BuildContext ctx, String title, String subtitle, IconData icon, String type, String initialContent) {
+  Widget _addBlockOption(BuildContext ctx, String title, String subtitle, IconData icon, String type, String initialContent, int index) {
     return ListTile(
       leading: Icon(icon, color: const Color(0xFF818CF8)),
       title: Text(title, style: const TextStyle(color: Colors.white)),
       subtitle: Text(subtitle, style: const TextStyle(color: Colors.grey, fontSize: 11)),
       onTap: () {
         Navigator.pop(ctx);
-        widget.onCardAdded(widget.selectedPage.id, type, initialContent);
+        widget.onCardAdded(widget.selectedPage.id, type, initialContent, insertAt: index);
       },
     );
   }

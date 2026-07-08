@@ -653,7 +653,8 @@ class ServerService extends ChangeNotifier {
         case 'add_card':
           if (data['item'] != null) {
             final card = Card.fromMap(data['item']);
-            await _addCard(card, fromRemote: true);
+            final int? insertAt = data['insertAt'] ?? card.sortOrder;
+            await _addCard(card, insertAt: insertAt, fromRemote: true);
           }
           break;
         case 'update_card':
@@ -1028,6 +1029,7 @@ class ServerService extends ChangeNotifier {
     required String pageId,
     required String type,
     required String content,
+    int? insertAt,
   }) async {
     if (_isClientMode && _isClientPaired) {
       final card = Card(
@@ -1035,33 +1037,45 @@ class ServerService extends ChangeNotifier {
         pageId: pageId,
         type: type,
         content: content,
-        sortOrder: 0,
+        sortOrder: insertAt ?? 0,
         createdAt: DateTime.now(),
         updatedAt: DateTime.now(),
       );
-      final payload = jsonEncode({'type': 'add_card', 'item': card.toMap()});
+      final payload = jsonEncode({
+        'type': 'add_card', 
+        'item': card.toMap(),
+        'insertAt': insertAt,
+      });
       _clientSocket?.add(payload);
       totalBytesSent += utf8.encode(payload).length;
       return;
     }
     final cards = await _dbService.getCards(pageId);
-    final maxOrder = cards.isEmpty ? 0 : cards.map((c) => c.sortOrder).reduce((a, b) => a > b ? a : b) + 1;
+    final targetSortOrder = insertAt ?? (cards.isEmpty ? 0 : cards.map((c) => c.sortOrder).reduce((a, b) => a > b ? a : b) + 1);
 
     final card = Card(
       id: generateId(),
       pageId: pageId,
       type: type,
       content: content,
-      sortOrder: maxOrder,
+      sortOrder: targetSortOrder,
       createdAt: DateTime.now(),
       updatedAt: DateTime.now(),
     );
-    await _addCard(card, fromRemote: false);
+    await _addCard(card, insertAt: insertAt, fromRemote: false);
   }
 
-  Future<void> _addCard(Card card, {required bool fromRemote}) async {
+  Future<void> _addCard(Card card, {int? insertAt, required bool fromRemote}) async {
     try {
-      await _dbService.insertCard(card);
+      final existingCards = await _dbService.getCards(card.pageId);
+
+      if (insertAt != null && insertAt >= 0 && insertAt <= existingCards.length) {
+        existingCards.insert(insertAt, card);
+        await _dbService.insertCard(card);
+        await _dbService.reorderCards(card.pageId, existingCards.map((c) => c.id).toList());
+      } else {
+        await _dbService.insertCard(card);
+      }
 
       await _broadcastCardsToAllClients(card.pageId);
       notifyListeners();

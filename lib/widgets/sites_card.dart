@@ -309,21 +309,6 @@ class _SitesCardState extends State<SitesCard> {
             ),
           ),
           const Spacer(),
-          // Play/Stop toggle button
-          IconButton(
-            icon: Icon(_isLive ? Icons.stop : Icons.play_arrow, size: 16),
-            color: _isLive ? Colors.redAccent : Colors.greenAccent,
-            padding: const EdgeInsets.all(2),
-            constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
-            onPressed: () {
-              if (_isLive) {
-                _stopBackgroundServer();
-              } else {
-                _startBackgroundServer();
-              }
-            },
-            tooltip: _isLive ? 'Stop serving local address' : 'Serve local address',
-          ),
           if (widget.onMoveUp != null)
             _actionBtn(Icons.arrow_upward, widget.onMoveUp!),
           if (widget.onMoveDown != null)

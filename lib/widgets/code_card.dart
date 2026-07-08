@@ -243,7 +243,8 @@ class _CodeCardState extends State<CodeCard> {
     final List<TextSpan> spans = [];
     final keywords = {
       'function', 'return', 'if', 'else', 'for', 'while', 'const', 'let', 'var',
-      'import', 'class', 'void', 'final', 'def', 'package', 'func', 'interface'
+      'import', 'class', 'void', 'final', 'def', 'package', 'func', 'interface',
+      'fn', 'mut', 'match', 'impl', 'struct', 'enum', 'pub', 'use', 'mod', 'as', 'type'
     };
     
     final regex = RegExp(

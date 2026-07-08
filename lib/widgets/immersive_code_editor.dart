@@ -95,6 +95,7 @@ class _ImmersiveCodeEditorState extends State<ImmersiveCodeEditor> {
             },
             items: const [
               DropdownMenuItem(value: 'javascript', child: Text('JS')),
+              DropdownMenuItem(value: 'rust', child: Text('RUST')),
               DropdownMenuItem(value: 'python', child: Text('PYTHON')),
               DropdownMenuItem(value: 'html', child: Text('HTML')),
               DropdownMenuItem(value: 'css', child: Text('CSS')),

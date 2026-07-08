@@ -35,7 +35,7 @@ class CommentItem {
 class Card {
   final String id;
   final String pageId;
-  final String type; // 'markdown', 'image', 'subpage_link', 'file'
+  final String type; // 'markdown', 'image', 'subpage_link', 'code', 'sites', 'section', 'file'
   final String content;
   final String comment;
   final int sortOrder;
