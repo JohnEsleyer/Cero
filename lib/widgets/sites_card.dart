@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../models/card_model.dart' as models;
+import '../services/server_service.dart';
 
 class SitesCard extends StatefulWidget {
   final models.Card card;
@@ -91,6 +92,8 @@ class _SitesCardState extends State<SitesCard> {
         _isLive = true;
       });
 
+      BackgroundServerRegistry.activeServers.add('$_name (Card #${widget.cardIndex ?? ""}) at $_backgroundServerUrl');
+
       _backgroundServer!.listen((HttpRequest request) {
         request.response
           ..headers.contentType = ContentType.html
@@ -109,6 +112,9 @@ class _SitesCardState extends State<SitesCard> {
 
   Future<void> _stopBackgroundServer() async {
     if (_backgroundServer != null) {
+      if (_backgroundServerUrl != null) {
+        BackgroundServerRegistry.activeServers.remove('$_name (Card #${widget.cardIndex ?? ""}) at $_backgroundServerUrl');
+      }
       await _backgroundServer!.close(force: true);
       _backgroundServer = null;
       setState(() {
@@ -390,6 +396,8 @@ class _SitesSandboxWorkspaceState extends State<SitesSandboxWorkspace> {
         _tempServerUrl = 'http://127.0.0.1:$port';
       });
 
+      BackgroundServerRegistry.activeServers.add('Sandbox Editor: ${_nameController.text} at $_tempServerUrl');
+
       _tempServer!.listen((HttpRequest request) {
         request.response
           ..headers.contentType = ContentType.html
@@ -406,6 +414,9 @@ class _SitesSandboxWorkspaceState extends State<SitesSandboxWorkspace> {
 
   Future<void> _stopLocalServer() async {
     if (_tempServer != null) {
+      if (_tempServerUrl != null) {
+        BackgroundServerRegistry.activeServers.remove('Sandbox Editor: ${_nameController.text} at $_tempServerUrl');
+      }
       await _tempServer!.close(force: true);
       _tempServer = null;
       _tempServerUrl = null;

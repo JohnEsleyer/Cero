@@ -1015,10 +1015,12 @@ class _MainJournalScreenState extends State<MainJournalScreen> {
     try {
       final cards = await _serverService.getCards(pageId);
       final sidePages = await _serverService.getSidePages(pageId);
-      setState(() {
-        _pageCards = cards;
-        _sidePages = sidePages;
-      });
+      if (mounted) {
+        setState(() {
+          _pageCards = cards;
+          _sidePages = sidePages;
+        });
+      }
     } catch (e) {
       debugPrint('Error loading cards: $e');
     }
@@ -2913,6 +2915,7 @@ class _MainJournalScreenState extends State<MainJournalScreen> {
               selectedPage: _selectedPage!,
               scrollController: _cardScrollController,
               dbService: _serverService.dbService,
+              serverService: _serverService,
               onNavigateToPage: _selectPage,
               onCardUpdated: (cardId, content) async {
                 await _serverService.updateCard(id: cardId, content: content);

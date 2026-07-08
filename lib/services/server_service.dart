@@ -8,6 +8,10 @@ import '../models/card_model.dart';
 import 'database_service.dart';
 import 'multicast_lock_helper.dart';
 
+class BackgroundServerRegistry {
+  static final Set<String> activeServers = {};
+}
+
 class ClientConnection {
   final WebSocket socket;
   final String remoteAddress;
@@ -80,6 +84,7 @@ class ServerService extends ChangeNotifier {
   String _clientError = '';
   List<Card> _remoteCards = [];
   final Map<String, Completer<List<Card>>> _fetchCardsCompleters = {};
+  final Map<String, List<Card>> _clientCachedCards = {};
   final List<DiscoveredServer> _discoveredServers = [];
   RawDatagramSocket? _udpDiscoverySocket;
 
@@ -90,9 +95,43 @@ class ServerService extends ChangeNotifier {
   List<Card> get remoteCards => _remoteCards;
   List<DiscoveredServer> get discoveredServers => _discoveredServers;
 
+  // --- Metrics Properties ---
+
+  static int totalBytesSent = 0;
+  static int totalBytesReceived = 0;
+  static double currentRxSpeed = 0.0; // in KB/s
+  static double currentTxSpeed = 0.0; // in KB/s
+
+  static int _lastBytesSent = 0;
+  static int _lastBytesReceived = 0;
+  static Timer? _speedTimer;
+
+  static void startSpeedTracking() {
+    _speedTimer?.cancel();
+    _speedTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      final sentDiff = totalBytesSent - _lastBytesSent;
+      final recvDiff = totalBytesReceived - _lastBytesReceived;
+
+      currentTxSpeed = sentDiff / 1024.0;
+      currentRxSpeed = recvDiff / 1024.0;
+
+      _lastBytesSent = totalBytesSent;
+      _lastBytesReceived = totalBytesReceived;
+    });
+  }
+
+  static int getMemoryUsageBytes() {
+    try {
+      return ProcessInfo.currentRss;
+    } catch (_) {
+      return 0;
+    }
+  }
+
   // --- Initialization ---
 
   Future<void> init() async {
+    startSpeedTracking();
     await _dbService.openDefaultWorkspace();
     await updateLocalIp();
     await loadDatabaseState();
@@ -139,6 +178,7 @@ class ServerService extends ChangeNotifier {
 
   Future<void> switchWorkspace(String filePath) async {
     await _dbService.switchWorkspace(filePath);
+    _clientCachedCards.clear();
     await loadDatabaseState();
     final paths = await _dbService.listWorkspaces();
     final names = paths.map((p) {
@@ -186,6 +226,7 @@ class ServerService extends ChangeNotifier {
           final remoteAddress = request.connectionInfo?.remoteAddress.address ?? 'Unknown';
           WebSocketTransformer.upgrade(request).then((WebSocket socket) {
             _handleNewClient(socket, remoteAddress);
+            totalBytesReceived += utf8.encode('WebSocket upgrade').length;
           }).catchError((e) {
             debugPrint('Error upgrading to WebSocket: $e');
           });
@@ -323,6 +364,9 @@ class ServerService extends ChangeNotifier {
 
       socket.listen(
         (message) {
+          if (message is String) {
+            totalBytesReceived += utf8.encode(message).length;
+          }
           _handleClientModeIncomingMessage(message as String);
         },
         onDone: () {
@@ -358,6 +402,7 @@ class ServerService extends ChangeNotifier {
     _clientError = '';
     _pages.clear();
     _remoteCards.clear();
+    _clientCachedCards.clear();
     notifyListeners();
   }
 
@@ -406,8 +451,12 @@ class ServerService extends ChangeNotifier {
           final String pageId = data['page_id'] ?? '';
           final List<dynamic> rawCards = data['cards'] ?? [];
           final cards = rawCards.map((c) => Card.fromMap(Map<String, dynamic>.from(c))).toList();
-          _fetchCardsCompleters[pageId]?.complete(cards);
-          _fetchCardsCompleters.remove(pageId);
+          _clientCachedCards[pageId] = cards;
+          if (_fetchCardsCompleters.containsKey(pageId)) {
+            _fetchCardsCompleters[pageId]?.complete(cards);
+            _fetchCardsCompleters.remove(pageId);
+          }
+          notifyListeners();
           break;
         case 'sync_side_pages':
           break;
@@ -425,9 +474,14 @@ class ServerService extends ChangeNotifier {
     if (!_isClientMode || !_isClientPaired) {
       return await _dbService.getCards(pageId);
     }
+    if (_clientCachedCards.containsKey(pageId)) {
+      return _clientCachedCards[pageId]!;
+    }
     final completer = Completer<List<Card>>();
     _fetchCardsCompleters[pageId] = completer;
-    _clientSocket?.add(jsonEncode({'type': 'fetch_cards', 'page_id': pageId}));
+    final payload = jsonEncode({'type': 'fetch_cards', 'page_id': pageId});
+    _clientSocket?.add(payload);
+    totalBytesSent += utf8.encode(payload).length;
     try {
       final result = await completer.future.timeout(const Duration(seconds: 10));
       return result;
@@ -455,7 +509,9 @@ class ServerService extends ChangeNotifier {
       'type': 'pairing_required',
       'remoteAddress': remoteAddress,
     };
-    socket.add(jsonEncode(pairMsg));
+    final pairPayload = jsonEncode(pairMsg);
+    socket.add(pairPayload);
+    totalBytesSent += utf8.encode(pairPayload).length;
 
     final completer = Completer<bool>();
     final pending = PendingConnection(socket, remoteAddress, completer);
@@ -465,6 +521,9 @@ class ServerService extends ChangeNotifier {
 
     socket.listen(
       (message) {
+        if (message is String) {
+          totalBytesReceived += utf8.encode(message).length;
+        }
         if (pending.completer.isCompleted) {
           _handleIncomingMessage(socket, message);
         } else {
@@ -495,7 +554,9 @@ class ServerService extends ChangeNotifier {
     if (!approved) {
       try {
         final rejectMsg = {'type': 'pairing_rejected'};
-        socket.add(jsonEncode(rejectMsg));
+        final rejectPayload = jsonEncode(rejectMsg);
+        socket.add(rejectPayload);
+        totalBytesSent += utf8.encode(rejectPayload).length;
         socket.close(4002, 'Pairing rejected by user');
       } catch (_) {}
       notifyListeners();
@@ -509,7 +570,9 @@ class ServerService extends ChangeNotifier {
     debugPrint('Desktop connected (approved): $remoteAddress');
 
     final acceptMsg = {'type': 'pairing_accepted'};
-    socket.add(jsonEncode(acceptMsg));
+    final acceptPayload = jsonEncode(acceptMsg);
+    socket.add(acceptPayload);
+    totalBytesSent += utf8.encode(acceptPayload).length;
 
     _sendWorkspaceStatus(socket);
     _syncMetadataToClient(socket);
@@ -664,6 +727,7 @@ class ServerService extends ChangeNotifier {
     for (var client in _clients) {
       try {
         client.socket.add(messageJson);
+        totalBytesSent += utf8.encode(messageJson).length;
       } catch (e) {
         debugPrint('Error sending message to client: $e');
       }
@@ -684,7 +748,9 @@ class ServerService extends ChangeNotifier {
         'activeWorkspace': _dbService.currentWorkspaceName,
         'availableWorkspaces': names,
       };
-      socket.add(jsonEncode(msg));
+      final payload = jsonEncode(msg);
+      socket.add(payload);
+      totalBytesSent += utf8.encode(payload).length;
     } catch (e) {
       debugPrint('Error sending workspace status: $e');
     }
@@ -705,10 +771,12 @@ class ServerService extends ChangeNotifier {
         'revision': page.revision,
       }).toList();
 
-      socket.add(jsonEncode({
+      final payload = jsonEncode({
         'type': 'sync',
         'data': metaData,
-      }));
+      });
+      socket.add(payload);
+      totalBytesSent += utf8.encode(payload).length;
     } catch (e) {
       debugPrint('Error syncing metadata: $e');
     }
@@ -717,11 +785,13 @@ class ServerService extends ChangeNotifier {
   Future<void> _sendCardsToClient(WebSocket socket, String pageId) async {
     try {
       final cards = await _dbService.getCards(pageId);
-      socket.add(jsonEncode({
+      final payload = jsonEncode({
         'type': 'sync_cards',
         'page_id': pageId,
         'cards': cards.map((c) => c.toMap()).toList(),
-      }));
+      });
+      socket.add(payload);
+      totalBytesSent += utf8.encode(payload).length;
     } catch (e) {
       debugPrint('Error sending cards to client: $e');
     }
@@ -784,7 +854,9 @@ class ServerService extends ChangeNotifier {
       updatedAt: DateTime.now(),
     );
     if (_isClientMode && _isClientPaired) {
-      _clientSocket?.add(jsonEncode({'type': 'add', 'item': newPage.toMap()}));
+      final payload = jsonEncode({'type': 'add', 'item': newPage.toMap()});
+      _clientSocket?.add(payload);
+      totalBytesSent += utf8.encode(payload).length;
       return newPage;
     }
     await _addItem(newPage, fromRemote: false);
@@ -811,10 +883,12 @@ class ServerService extends ChangeNotifier {
     required String emoji,
   }) async {
     if (_isClientMode && _isClientPaired) {
-      _clientSocket?.add(jsonEncode({
+      final payload = jsonEncode({
         'type': 'update',
         'item': {'id': id, 'title': title, 'emoji': emoji},
-      }));
+      });
+      _clientSocket?.add(payload);
+      totalBytesSent += utf8.encode(payload).length;
       return;
     }
     final index = _pages.indexWhere((p) => p.id == id);
@@ -859,7 +933,9 @@ class ServerService extends ChangeNotifier {
 
   Future<void> deletePage(String id) async {
     if (_isClientMode && _isClientPaired) {
-      _clientSocket?.add(jsonEncode({'type': 'delete', 'id': id}));
+      final payload = jsonEncode({'type': 'delete', 'id': id});
+      _clientSocket?.add(payload);
+      totalBytesSent += utf8.encode(payload).length;
       return;
     }
     await _archiveItem(id, fromRemote: false);
@@ -878,7 +954,9 @@ class ServerService extends ChangeNotifier {
 
   Future<void> restorePage(String id) async {
     if (_isClientMode && _isClientPaired) {
-      _clientSocket?.add(jsonEncode({'type': 'restore', 'id': id}));
+      final payload = jsonEncode({'type': 'restore', 'id': id});
+      _clientSocket?.add(payload);
+      totalBytesSent += utf8.encode(payload).length;
       return;
     }
     await _restoreItem(id, fromRemote: false);
@@ -897,11 +975,13 @@ class ServerService extends ChangeNotifier {
 
   Future<void> movePage(String id, String? newParentId) async {
     if (_isClientMode && _isClientPaired) {
-      _clientSocket?.add(jsonEncode({
+      final payload = jsonEncode({
         'type': 'move',
         'id': id,
         'parent_id': newParentId ?? '',
-      }));
+      });
+      _clientSocket?.add(payload);
+      totalBytesSent += utf8.encode(payload).length;
       return;
     }
     await _moveItem(id, newParentId, fromRemote: false);
@@ -959,7 +1039,9 @@ class ServerService extends ChangeNotifier {
         createdAt: DateTime.now(),
         updatedAt: DateTime.now(),
       );
-      _clientSocket?.add(jsonEncode({'type': 'add_card', 'item': card.toMap()}));
+      final payload = jsonEncode({'type': 'add_card', 'item': card.toMap()});
+      _clientSocket?.add(payload);
+      totalBytesSent += utf8.encode(payload).length;
       return;
     }
     final cards = await _dbService.getCards(pageId);
@@ -997,10 +1079,12 @@ class ServerService extends ChangeNotifier {
       final Map<String, dynamic> updateItem = {'id': id};
       if (content != null) updateItem['content'] = content;
       if (comment != null) updateItem['comment'] = comment;
-      _clientSocket?.add(jsonEncode({
+      final payload = jsonEncode({
         'type': 'update_card',
         'item': updateItem,
-      }));
+      });
+      _clientSocket?.add(payload);
+      totalBytesSent += utf8.encode(payload).length;
       return;
     }
     final card = await _dbService.getCard(id);
@@ -1028,7 +1112,9 @@ class ServerService extends ChangeNotifier {
 
   Future<void> deleteCard(String cardId) async {
     if (_isClientMode && _isClientPaired) {
-      _clientSocket?.add(jsonEncode({'type': 'delete_card', 'id': cardId}));
+      final payload = jsonEncode({'type': 'delete_card', 'id': cardId});
+      _clientSocket?.add(payload);
+      totalBytesSent += utf8.encode(payload).length;
       return;
     }
     await _deleteCard(cardId, fromRemote: false);
@@ -1038,11 +1124,13 @@ class ServerService extends ChangeNotifier {
     if (cardIds.isEmpty) return;
     if (_isClientMode && _isClientPaired) {
       final card = await _dbService.getCard(cardIds.first);
-      _clientSocket?.add(jsonEncode({
+      final payload = jsonEncode({
         'type': 'reorder_cards',
         'page_id': card?.pageId ?? '',
         'order': cardIds,
-      }));
+      });
+      _clientSocket?.add(payload);
+      totalBytesSent += utf8.encode(payload).length;
       return;
     }
     final card = await _dbService.getCard(cardIds.first);
@@ -1086,11 +1174,13 @@ class ServerService extends ChangeNotifier {
         final filename = p.split(Platform.pathSeparator).last;
         return filename.replaceAll('.db', '');
       }).toList();
-      sender.add(jsonEncode({
+      final payload = jsonEncode({
         'type': 'workspace_list',
         'workspaces': names,
         'activeWorkspace': _dbService.currentWorkspaceName,
-      }));
+      });
+      sender.add(payload);
+      totalBytesSent += utf8.encode(payload).length;
     } catch (e) {
       debugPrint('Error listing workspaces: $e');
     }

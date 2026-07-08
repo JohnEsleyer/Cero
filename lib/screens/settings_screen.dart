@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
@@ -19,12 +20,24 @@ class _SettingsScreenState extends State<SettingsScreen> {
   String _activeWorkspace = '';
   String _dbPathInfo = '';
   bool _isLoading = false;
+  Timer? _resourceUpdateTimer;
 
   @override
   void initState() {
     super.initState();
     _serverService = widget.serverService;
     _loadWorkspaceData();
+    _resourceUpdateTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (mounted) {
+        setState(() {});
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _resourceUpdateTimer?.cancel();
+    super.dispose();
   }
 
   Future<void> _loadWorkspaceData() async {
@@ -315,6 +328,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   _buildSectionHeader('DATABASE INFORMATION'),
                   _buildPathCard(),
                   const SizedBox(height: 24),
+                  _buildSectionHeader('SYSTEM METRICS & BACKGROUND SERVICES'),
+                  _buildMetricsCard(),
+                  const SizedBox(height: 24),
                   _buildSectionHeader('BACKUP & SINGLE-FILE SYNC'),
                   _buildBackupCard(),
                   const SizedBox(height: 24),
@@ -371,6 +387,165 @@ class _SettingsScreenState extends State<SettingsScreen> {
     } catch (_) {
       return const SizedBox();
     }
+  }
+
+  Widget _buildMetricsCard() {
+    final activeBackgroundSites = BackgroundServerRegistry.activeServers;
+    final memoryUsage = ServerService.getMemoryUsageBytes();
+    final rxSpeed = ServerService.currentRxSpeed;
+    final txSpeed = ServerService.currentTxSpeed;
+    final totalRx = ServerService.totalBytesReceived;
+    final totalTx = ServerService.totalBytesSent;
+
+    String memoryStr;
+    if (memoryUsage < 1024 * 1024) {
+      memoryStr = '${(memoryUsage / 1024).toStringAsFixed(1)} KB';
+    } else {
+      memoryStr = '${(memoryUsage / (1024 * 1024)).toStringAsFixed(1)} MB';
+    }
+
+    String formatBytes(int bytes) {
+      if (bytes < 1024) return '$bytes B';
+      if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(1)} KB';
+      return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
+    }
+
+    return Card(
+      color: const Color(0xFF202020),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(10),
+        side: const BorderSide(color: Color(0xFF2C2C2C)),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Row(
+              children: [
+                Icon(Icons.analytics_outlined, color: Color(0xFF818CF8), size: 18),
+                SizedBox(width: 8),
+                Text(
+                  'Resource Usage',
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            _buildMetricRow(
+              icon: Icons.memory_outlined,
+              label: 'Memory Footprint (RSS)',
+              value: memoryStr,
+            ),
+            const Divider(height: 16, color: Color(0xFF2C2C2C)),
+            _buildMetricRow(
+              icon: Icons.downloading_outlined,
+              label: 'Incoming Sync (RX)',
+              value: '${rxSpeed.toStringAsFixed(1)} KB/s',
+              subtitle: 'Total: ${formatBytes(totalRx)}',
+            ),
+            const Divider(height: 16, color: Color(0xFF2C2C2C)),
+            _buildMetricRow(
+              icon: Icons.upload_file_outlined,
+              label: 'Outgoing Sync (TX)',
+              value: '${txSpeed.toStringAsFixed(1)} KB/s',
+              subtitle: 'Total: ${formatBytes(totalTx)}',
+            ),
+            const SizedBox(height: 20),
+            const Row(
+              children: [
+                Icon(Icons.dns_outlined, color: Color(0xFF818CF8), size: 16),
+                SizedBox(width: 8),
+                Text(
+                  'Active Sandbox HTML Servers',
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Colors.white),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            if (activeBackgroundSites.isEmpty)
+              Container(
+                padding: const EdgeInsets.all(12),
+                width: double.infinity,
+                decoration: BoxDecoration(
+                  color: const Color(0xFF191919),
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: const Text(
+                  'No background sandbox sites are currently running.',
+                  style: TextStyle(color: Colors.grey, fontSize: 11),
+                ),
+              )
+            else
+              ...activeBackgroundSites.map((site) => Container(
+                    margin: const EdgeInsets.only(bottom: 6),
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF191919),
+                      borderRadius: BorderRadius.circular(6),
+                      border: Border.all(color: Colors.green.withOpacity(0.2)),
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.circle, size: 8, color: Colors.greenAccent),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: SelectableText(
+                            site,
+                            style: const TextStyle(
+                              fontFamily: 'monospace',
+                              fontSize: 10,
+                              color: Color(0xFFCBD5E1),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  )),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildMetricRow({
+    required IconData icon,
+    required String label,
+    required String value,
+    String? subtitle,
+  }) {
+    return Row(
+      children: [
+        Icon(icon, size: 16, color: const Color(0xFF818CF8)),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                label,
+                style: const TextStyle(fontSize: 11, color: Colors.grey),
+              ),
+              if (subtitle != null) ...[
+                const SizedBox(height: 2),
+                Text(
+                  subtitle,
+                  style: const TextStyle(fontSize: 10, color: Color(0xFF64748B)),
+                ),
+              ],
+            ],
+          ),
+        ),
+        Text(
+          value,
+          style: const TextStyle(
+            fontWeight: FontWeight.bold,
+            fontSize: 12,
+            color: Colors.white,
+          ),
+        ),
+      ],
+    );
   }
 
   Widget _buildPathCard() {
