@@ -990,12 +990,16 @@ class ServerService extends ChangeNotifier {
 
   Future<void> updateCard({
     required String id,
-    required String content,
+    String? content,
+    String? comment,
   }) async {
     if (_isClientMode && _isClientPaired) {
+      final Map<String, dynamic> updateItem = {'id': id};
+      if (content != null) updateItem['content'] = content;
+      if (comment != null) updateItem['comment'] = comment;
       _clientSocket?.add(jsonEncode({
         'type': 'update_card',
-        'item': {'id': id, 'content': content},
+        'item': updateItem,
       }));
       return;
     }
@@ -1003,7 +1007,8 @@ class ServerService extends ChangeNotifier {
     if (card == null) return;
 
     final updated = card.copyWith(
-      content: content,
+      content: content ?? card.content,
+      comment: comment ?? card.comment,
       updatedAt: DateTime.now(),
       revision: card.revision + 1,
     );

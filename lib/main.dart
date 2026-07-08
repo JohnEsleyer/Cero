@@ -3,10 +3,12 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:file_picker/file_picker.dart';
 import 'services/server_service.dart';
 import 'models/page_model.dart';
 import 'models/card_model.dart' as models;
 import 'widgets/card_column.dart';
+import 'widgets/page_icon.dart';
 import 'screens/settings_screen.dart';
 
 void main() async {
@@ -76,6 +78,10 @@ class _MainJournalScreenState extends State<MainJournalScreen> {
 
   // Rich Keyboard-Matching Categorized Emojis Catalog with names for search
   final List<Map<String, dynamic>> _emojiCategories = [
+    {
+      'id': 'custom_image',
+      'label': '🖼️ Custom Image',
+    },
     {
       'id': 'smileys',
       'label': '😀 Smileys',
@@ -1297,9 +1303,10 @@ class _MainJournalScreenState extends State<MainJournalScreen> {
                   .map(
                     (page) => ListTile(
                       dense: true,
-                      leading: Text(
-                        page.emoji,
-                        style: const TextStyle(fontSize: 16),
+                      leading: PageIcon(
+                        emoji: page.emoji,
+                        size: 16,
+                        dbService: _serverService.dbService,
                       ),
                       title: Text(
                         page.title.isEmpty ? 'Untitled' : page.title,
@@ -1354,6 +1361,7 @@ class _MainJournalScreenState extends State<MainJournalScreen> {
           if (emojiSearchQuery.isNotEmpty) {
             final q = emojiSearchQuery.toLowerCase();
             for (final cat in _emojiCategories) {
+              if (cat['emojis'] == null) continue;
               for (final e in List<Map<String, dynamic>>.from(cat['emojis'])) {
                 final name = e['name'].toString().toLowerCase();
                 final char = e['char'].toString();
@@ -1367,9 +1375,11 @@ class _MainJournalScreenState extends State<MainJournalScreen> {
               (cat) => cat['id'] == currentCategory,
               orElse: () => _emojiCategories.first,
             );
-            allEmojis = List<Map<String, dynamic>>.from(activeCategoryData['emojis'])
-                .map((e) => e['char'] as String)
-                .toList();
+            if (currentCategory != 'custom_image') {
+              allEmojis = List<Map<String, dynamic>>.from(activeCategoryData['emojis'] ?? [])
+                  .map((e) => e['char'] as String)
+                  .toList();
+            }
           }
 
           return Container(
@@ -1383,7 +1393,7 @@ class _MainJournalScreenState extends State<MainJournalScreen> {
                   child: Row(
                     children: [
                       const Text(
-                        'Select Emoji Icon',
+                        'Select Page Icon',
                         style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
                       ),
                       const Spacer(),
@@ -1469,6 +1479,7 @@ class _MainJournalScreenState extends State<MainJournalScreen> {
                             setState(() {
                               _selectedPage = _selectedPage!.copyWith(emoji: e);
                             });
+                            _saveRecentEmoji(e);
                             _saveCurrentPageImmediate();
                             Navigator.pop(context);
                           },
@@ -1476,7 +1487,7 @@ class _MainJournalScreenState extends State<MainJournalScreen> {
                           child: Container(
                             padding: const EdgeInsets.symmetric(horizontal: 4),
                             alignment: Alignment.center,
-                            child: Text(e, style: const TextStyle(fontSize: 22)),
+                            child: PageIcon(emoji: e, size: 22, dbService: _serverService.dbService),
                           ),
                         );
                       },
@@ -1524,38 +1535,140 @@ class _MainJournalScreenState extends State<MainJournalScreen> {
                   ),
                 if (emojiSearchQuery.isEmpty)
                   const Divider(height: 1, color: Color(0xFF2D2D2D)),
-                // Grid of Emojis
+                // Grid of Emojis / Image Config UI
                 Expanded(
-                  child: allEmojis.isEmpty && emojiSearchQuery.isNotEmpty
-                      ? const Center(
-                          child: Text('No emojis match your search', style: TextStyle(color: Colors.grey, fontSize: 13)),
-                        )
-                      : GridView.builder(
-                          padding: const EdgeInsets.all(20),
-                          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                            crossAxisCount: 6,
-                            mainAxisSpacing: 10,
-                            crossAxisSpacing: 10,
-                          ),
-                          itemCount: allEmojis.length,
-                          itemBuilder: (context, index) {
-                            final emoji = allEmojis[index].trim();
-                            return InkWell(
-                              onTap: () {
-                                setState(() {
-                                  _selectedPage = _selectedPage!.copyWith(emoji: emoji);
-                                });
-                                _saveRecentEmoji(emoji);
-                                _saveCurrentPageImmediate();
-                                Navigator.pop(context);
-                              },
-                              borderRadius: BorderRadius.circular(8),
-                              child: Center(
-                                child: Text(emoji, style: const TextStyle(fontSize: 26)),
+                  child: currentCategory == 'custom_image' && emojiSearchQuery.isEmpty
+                      ? Padding(
+                          padding: const EdgeInsets.all(24.0),
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              const Icon(Icons.add_photo_alternate_outlined, size: 48, color: Color(0xFF818CF8)),
+                              const SizedBox(height: 12),
+                              const Text(
+                                'Use Custom Page Icon',
+                                textAlign: TextAlign.center,
+                                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white),
                               ),
-                            );
-                          },
-                        ),
+                              const SizedBox(height: 6),
+                              const Text(
+                                'Import an image from your system or use an online URL as this page\'s icon.',
+                                textAlign: TextAlign.center,
+                                style: TextStyle(color: Colors.grey, fontSize: 12),
+                              ),
+                              const SizedBox(height: 24),
+                              ElevatedButton.icon(
+                                onPressed: () async {
+                                  try {
+                                    final result = await FilePicker.platform.pickFiles(type: FileType.image);
+                                    if (result != null && result.files.single.path != null) {
+                                      final file = File(result.files.single.path!);
+                                      final bytes = await file.readAsBytes();
+                                      final name = result.files.single.name;
+                                      final filename = await _serverService.dbService.saveImage(bytes, name);
+                                      setState(() {
+                                        _selectedPage = _selectedPage!.copyWith(emoji: filename);
+                                      });
+                                      _saveCurrentPageImmediate();
+                                      Navigator.pop(context);
+                                    }
+                                  } catch (e) {
+                                    debugPrint('Error picking icon image: $e');
+                                  }
+                                },
+                                icon: const Icon(Icons.photo_library),
+                                label: const Text('Pick Image from System'),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: const Color(0xFF818CF8),
+                                  foregroundColor: Colors.white,
+                                  padding: const EdgeInsets.symmetric(vertical: 12),
+                                ),
+                              ),
+                              const SizedBox(height: 10),
+                              OutlinedButton.icon(
+                                onPressed: () {
+                                  final urlController = TextEditingController();
+                                  showDialog(
+                                    context: context,
+                                    builder: (dialogCtx) => AlertDialog(
+                                      backgroundColor: const Color(0xFF202020),
+                                      title: const Text('Enter Icon URL', style: TextStyle(color: Colors.white, fontSize: 14)),
+                                      content: TextField(
+                                        controller: urlController,
+                                        style: const TextStyle(color: Colors.white, fontSize: 13),
+                                        decoration: const InputDecoration(
+                                          hintText: 'https://example.com/icon.png',
+                                          hintStyle: TextStyle(color: Colors.grey, fontSize: 12),
+                                          enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: Color(0xFF3E3E3E))),
+                                          focusedBorder: UnderlineInputBorder(borderSide: BorderSide(color: Color(0xFF818CF8))),
+                                        ),
+                                        autofocus: true,
+                                      ),
+                                      actions: [
+                                        TextButton(
+                                          onPressed: () => Navigator.pop(dialogCtx),
+                                          child: const Text('Cancel', style: TextStyle(color: Colors.grey)),
+                                        ),
+                                        TextButton(
+                                          onPressed: () {
+                                            final url = urlController.text.trim();
+                                            if (url.isNotEmpty) {
+                                              setState(() {
+                                                _selectedPage = _selectedPage!.copyWith(emoji: url);
+                                              });
+                                              _saveCurrentPageImmediate();
+                                              Navigator.pop(dialogCtx);
+                                              Navigator.pop(context); // close emoji sheet
+                                            }
+                                          },
+                                          child: const Text('Apply', style: TextStyle(color: Color(0xFF818CF8))),
+                                        ),
+                                      ],
+                                    ),
+                                  );
+                                },
+                                icon: const Icon(Icons.link),
+                                label: const Text('Use Image URL'),
+                                style: OutlinedButton.styleFrom(
+                                  foregroundColor: const Color(0xFF818CF8),
+                                  side: const BorderSide(color: Color(0xFF3E3E3E)),
+                                  padding: const EdgeInsets.symmetric(vertical: 12),
+                                ),
+                              ),
+                            ],
+                          ),
+                        )
+                      : allEmojis.isEmpty && emojiSearchQuery.isNotEmpty
+                          ? const Center(
+                              child: Text('No emojis match your search', style: TextStyle(color: Colors.grey, fontSize: 13)),
+                            )
+                          : GridView.builder(
+                              padding: const EdgeInsets.all(20),
+                              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                                crossAxisCount: 6,
+                                mainAxisSpacing: 10,
+                                crossAxisSpacing: 10,
+                              ),
+                              itemCount: allEmojis.length,
+                              itemBuilder: (context, index) {
+                                final emoji = allEmojis[index].trim();
+                                return InkWell(
+                                  onTap: () {
+                                    setState(() {
+                                      _selectedPage = _selectedPage!.copyWith(emoji: emoji);
+                                    });
+                                    _saveRecentEmoji(emoji);
+                                    _saveCurrentPageImmediate();
+                                    Navigator.pop(context);
+                                  },
+                                  borderRadius: BorderRadius.circular(8),
+                                  child: Center(
+                                    child: PageIcon(emoji: emoji, size: 26, dbService: _serverService.dbService),
+                                  ),
+                                );
+                              },
+                            ),
                 ),
               ],
             ),
@@ -1623,8 +1736,14 @@ class _MainJournalScreenState extends State<MainJournalScreen> {
                         style: TextStyle(fontSize: 10, color: Colors.grey),
                       ),
                     ),
+                  PageIcon(
+                    emoji: page.emoji,
+                    size: 10,
+                    dbService: _serverService.dbService,
+                  ),
+                  const SizedBox(width: 4),
                   Text(
-                    '${page.emoji} ${page.title.isEmpty ? 'Untitled' : page.title}',
+                    page.title.isEmpty ? 'Untitled' : page.title,
                     style: TextStyle(
                       fontSize: 10,
                       color: isLast ? const Color(0xFF818CF8) : Colors.grey,
@@ -1989,9 +2108,10 @@ class _MainJournalScreenState extends State<MainJournalScreen> {
                           ),
                           child: ListTile(
                             dense: true,
-                            leading: Text(
-                              sp.emoji,
-                              style: const TextStyle(fontSize: 16),
+                            leading: PageIcon(
+                              emoji: sp.emoji,
+                              size: 16,
+                              dbService: _serverService.dbService,
                             ),
                             title: Text(
                               sp.title.isEmpty ? 'Untitled' : sp.title,
@@ -2530,7 +2650,7 @@ class _MainJournalScreenState extends State<MainJournalScreen> {
                     ),
                   ),
                   const SizedBox(width: 6),
-                  Text(page.emoji, style: const TextStyle(fontSize: 14)),
+                  PageIcon(emoji: page.emoji, size: 14, dbService: _serverService.dbService),
                 ],
               ),
               title: Text(
@@ -2575,7 +2695,7 @@ class _MainJournalScreenState extends State<MainJournalScreen> {
         child: ListTile(
           dense: true,
           visualDensity: VisualDensity.compact,
-          leading: Text(page.emoji, style: const TextStyle(fontSize: 16)),
+          leading: PageIcon(emoji: page.emoji, size: 16, dbService: _serverService.dbService),
           title: Text(
             page.title.isEmpty ? 'Untitled' : page.title,
             style: const TextStyle(
@@ -2713,9 +2833,10 @@ class _MainJournalScreenState extends State<MainJournalScreen> {
                   return Card(
                     margin: const EdgeInsets.symmetric(vertical: 6),
                     child: ListTile(
-                      leading: Text(
-                        page.emoji,
-                        style: const TextStyle(fontSize: 20),
+                      leading: PageIcon(
+                        emoji: page.emoji,
+                        size: 20,
+                        dbService: _serverService.dbService,
                       ),
                       title: Text(
                         page.title.isEmpty ? 'Untitled' : page.title,
@@ -2758,9 +2879,10 @@ class _MainJournalScreenState extends State<MainJournalScreen> {
                     color: Colors.white.withOpacity(0.03),
                     borderRadius: BorderRadius.circular(8),
                   ),
-                  child: Text(
-                    _selectedPage!.emoji,
-                    style: const TextStyle(fontSize: 32),
+                  child: PageIcon(
+                    emoji: _selectedPage!.emoji,
+                    size: 32,
+                    dbService: _serverService.dbService,
                   ),
                 ),
               ),
@@ -2790,6 +2912,7 @@ class _MainJournalScreenState extends State<MainJournalScreen> {
               allPages: _serverService.pages,
               selectedPage: _selectedPage!,
               scrollController: _cardScrollController,
+              dbService: _serverService.dbService,
               onNavigateToPage: _selectPage,
               onCardUpdated: (cardId, content) async {
                 await _serverService.updateCard(id: cardId, content: content);
@@ -2804,10 +2927,8 @@ class _MainJournalScreenState extends State<MainJournalScreen> {
                 _loadCardsForPage(pageId);
                 WidgetsBinding.instance.addPostFrameCallback((_) {
                   if (_cardScrollController.hasClients) {
-                    _cardScrollController.animateTo(
+                    _cardScrollController.jumpTo(
                       _cardScrollController.position.maxScrollExtent,
-                      duration: const Duration(milliseconds: 300),
-                      curve: Curves.easeOut,
                     );
                   }
                 });

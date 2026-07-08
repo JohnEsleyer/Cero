@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import '../models/page_model.dart';
 import '../models/card_model.dart' as models;
+import '../services/database_service.dart';
+import 'page_icon.dart';
 
 class SubpageLinkCard extends StatefulWidget {
   final models.Card card;
@@ -13,6 +15,7 @@ class SubpageLinkCard extends StatefulWidget {
   final VoidCallback? onMoveUp;
   final VoidCallback? onMoveDown;
   final int? cardIndex;
+  final DatabaseService? dbService;
 
   const SubpageLinkCard({
     super.key,
@@ -26,6 +29,7 @@ class SubpageLinkCard extends StatefulWidget {
     this.onMoveUp,
     this.onMoveDown,
     this.cardIndex,
+    this.dbService,
   });
 
   @override
@@ -176,7 +180,11 @@ class _SubpageLinkCardState extends State<SubpageLinkCard> {
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
         child: Row(
           children: [
-            Text(page.emoji, style: const TextStyle(fontSize: 20)),
+            PageIcon(
+              emoji: page.emoji,
+              size: 20,
+              dbService: widget.dbService,
+            ),
             const SizedBox(width: 10),
             Expanded(
               child: Column(
@@ -229,6 +237,7 @@ class _SubpageLinkCardState extends State<SubpageLinkCard> {
       isScrollControlled: true,
       builder: (ctx) => _PagePickerSheet(
         candidates: _candidates,
+        dbService: widget.dbService,
         onSelect: (page) {
           widget.onContentChanged(page.id);
           setState(() => _isEditing = false);
@@ -265,11 +274,13 @@ class _PagePickerSheet extends StatefulWidget {
   final List<DbPage> candidates;
   final ValueChanged<DbPage> onSelect;
   final VoidCallback onCreateNew;
+  final DatabaseService? dbService;
 
   const _PagePickerSheet({
     required this.candidates,
     required this.onSelect,
     required this.onCreateNew,
+    this.dbService,
   });
 
   @override
@@ -417,9 +428,10 @@ class _PagePickerSheetState extends State<_PagePickerSheet> {
                     itemBuilder: (_, i) {
                       final p = _filtered[i];
                       return ListTile(
-                        leading: Text(
-                          p.emoji,
-                          style: const TextStyle(fontSize: 20),
+                        leading: PageIcon(
+                          emoji: p.emoji,
+                          size: 20,
+                          dbService: widget.dbService,
                         ),
                         title: Text(
                           p.title,

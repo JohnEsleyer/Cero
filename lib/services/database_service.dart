@@ -109,7 +109,7 @@ class DatabaseService {
 
     final db = await openDatabase(
       dbPath,
-      version: 2,
+      version: 3,
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
       onConfigure: (db) async {
@@ -143,6 +143,7 @@ class DatabaseService {
         page_id TEXT NOT NULL,
         type TEXT NOT NULL,
         content TEXT NOT NULL,
+        comment TEXT NOT NULL DEFAULT '',
         sort_order INTEGER NOT NULL DEFAULT 0,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL,
@@ -222,6 +223,7 @@ class DatabaseService {
           page_id TEXT NOT NULL,
           type TEXT NOT NULL,
           content TEXT NOT NULL,
+          comment TEXT NOT NULL DEFAULT '',
           sort_order INTEGER NOT NULL DEFAULT 0,
           created_at TEXT NOT NULL,
           updated_at TEXT NOT NULL,
@@ -229,6 +231,13 @@ class DatabaseService {
           FOREIGN KEY (page_id) REFERENCES pages (id) ON DELETE CASCADE
         )
       ''');
+    }
+    if (oldVersion < 3) {
+      try {
+        await db.execute(
+          "ALTER TABLE cards ADD COLUMN comment TEXT NOT NULL DEFAULT ''",
+        );
+      } catch (_) {}
     }
   }
 
