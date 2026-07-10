@@ -73,7 +73,7 @@ class _MainJournalScreenState extends State<MainJournalScreen> {
   final TextEditingController _clientIpController = TextEditingController();
   final TextEditingController _clientPinController = TextEditingController();
   bool _isClientModeTab = false;
-
+  String _sidebarSearchQuery = '';
 
   @override
   void initState() {
@@ -878,12 +878,50 @@ class _MainJournalScreenState extends State<MainJournalScreen> {
   }
 
   Widget _buildDrawer(List<DbPage> rootPages, List<DbPage> allPages) {
+    final filteredRootPages = rootPages.where((p) {
+      if (_sidebarSearchQuery.isEmpty) return true;
+      return p.title.toLowerCase().contains(_sidebarSearchQuery.toLowerCase());
+    }).toList();
+
     return Drawer(
       child: SafeArea(
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             _buildDrawerHeader(),
+            if (!_showArchived)
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                child: TextField(
+                  onChanged: (val) {
+                    setState(() {
+                      _sidebarSearchQuery = val;
+                    });
+                  },
+                  style: const TextStyle(fontSize: 12, color: Colors.white),
+                  decoration: const InputDecoration(
+                    hintText: 'Search root pages...',
+                    hintStyle: TextStyle(fontSize: 12, color: Colors.grey),
+                    isDense: true,
+                    contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                    filled: true,
+                    fillColor: Color(0xFF191919),
+                    border: OutlineInputBorder(
+                      borderSide: BorderSide(color: Color(0xFF2C2C2C)),
+                      borderRadius: BorderRadius.all(Radius.circular(6)),
+                    ),
+                    enabledBorder: OutlineInputBorder(
+                      borderSide: BorderSide(color: Color(0xFF2C2C2C)),
+                      borderRadius: BorderRadius.all(Radius.circular(6)),
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderSide: BorderSide(color: Color(0xFF818CF8)),
+                      borderRadius: BorderRadius.all(Radius.circular(6)),
+                    ),
+                    prefixIcon: Icon(Icons.search, size: 14, color: Colors.grey),
+                  ),
+                ),
+              ),
             Expanded(
               child: ListView(
                 padding: const EdgeInsets.symmetric(vertical: 8),
@@ -891,8 +929,8 @@ class _MainJournalScreenState extends State<MainJournalScreen> {
                     ? (_archivedPages
                           .map((page) => _buildArchivedPageTile(page))
                           .toList())
-                    : rootPages
-                          .map((page) => _buildPageTreeNode(page, allPages, 0))
+                    : filteredRootPages
+                          .map((page) => _buildPageTile(page))
                           .toList(),
               ),
             ),
@@ -1542,90 +1580,50 @@ class _MainJournalScreenState extends State<MainJournalScreen> {
     );
   }
 
-  Widget _buildPageTreeNode(DbPage page, List<DbPage> allPages, int depth) {
-    final children = allPages
-        .where((p) => p.parentId == page.id && p.relationType != 'sidepage')
-        .toList();
-    final hasChildren = children.isNotEmpty;
-    final isExpanded = _expandedPageIds.contains(page.id);
+  // Simplified flat representation of top-level root pages
+  Widget _buildPageTile(DbPage page) {
     final isSelected = _selectedPage?.id == page.id;
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        Padding(
-          padding: EdgeInsets.only(left: depth * 12.0),
-          child: Container(
-            margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 1),
-            decoration: BoxDecoration(
-              color: isSelected
-                  ? const Color(0xFF818CF8).withOpacity(0.1)
-                  : Colors.transparent,
-              borderRadius: BorderRadius.circular(6),
-            ),
-            child: ListTile(
-              dense: true,
-              visualDensity: VisualDensity.compact,
-              contentPadding: const EdgeInsets.only(left: 8, right: 12),
-              leading: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  GestureDetector(
-                    onTap: () {
-                      setState(() {
-                        if (isExpanded) {
-                          _expandedPageIds.remove(page.id);
-                        } else {
-                          _expandedPageIds.add(page.id);
-                        }
-                      });
-                    },
-                    child: Icon(
-                      hasChildren
-                          ? (isExpanded
-                                ? Icons.keyboard_arrow_down
-                                : Icons.keyboard_arrow_right)
-                          : Icons.description_outlined,
-                      size: 16,
-                      color: isSelected
-                          ? const Color(0xFF818CF8)
-                          : const Color(0xFF64748B),
-                    ),
-                  ),
-                  const SizedBox(width: 6),
-                  PageIcon(emoji: page.emoji, size: 14, dbService: _serverService.dbService),
-                ],
-              ),
-              title: Text(
-                page.title.isEmpty ? 'Untitled' : page.title,
-                style: TextStyle(
-                  fontSize: 13,
-                  fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
-                  color: isSelected
-                      ? const Color(0xFF818CF8)
-                      : const Color(0xFFCBD5E1),
-                ),
-                overflow: TextOverflow.ellipsis,
-              ),
-              trailing: IconButton(
-                icon: const Icon(Icons.add, size: 14, color: Color(0xFF64748B)),
-                tooltip: 'Add subpage',
-                padding: EdgeInsets.zero,
-                constraints: const BoxConstraints(),
-                onPressed: () => _createSubpage(page.id),
-              ),
-              onTap: () {
-                Navigator.pop(context);
-                _selectPage(page);
-              },
-            ),
-          ),
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 1.5),
+      decoration: BoxDecoration(
+        color: isSelected
+            ? const Color(0xFF818CF8).withOpacity(0.1)
+            : Colors.transparent,
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: ListTile(
+        dense: true,
+        visualDensity: VisualDensity.compact,
+        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 0),
+        leading: PageIcon(
+          emoji: page.emoji, 
+          size: 15, 
+          dbService: _serverService.dbService
         ),
-        if (hasChildren && isExpanded)
-          ...children.map(
-            (child) => _buildPageTreeNode(child, allPages, depth + 1),
+        title: Text(
+          page.title.isEmpty ? 'Untitled' : page.title,
+          style: TextStyle(
+            fontSize: 13,
+            fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
+            color: isSelected
+                ? const Color(0xFF818CF8)
+                : const Color(0xFFCBD5E1),
           ),
-      ],
+          overflow: TextOverflow.ellipsis,
+        ),
+        trailing: IconButton(
+          icon: const Icon(Icons.add, size: 14, color: Color(0xFF64748B)),
+          tooltip: 'Add subpage',
+          padding: EdgeInsets.zero,
+          constraints: const BoxConstraints(),
+          onPressed: () => _createSubpage(page.id),
+        ),
+        onTap: () {
+          Navigator.pop(context);
+          _selectPage(page);
+        },
+      ),
     );
   }
 

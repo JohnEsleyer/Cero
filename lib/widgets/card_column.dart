@@ -53,16 +53,43 @@ class CardColumn extends StatefulWidget {
 
 class _CardColumnState extends State<CardColumn> {
   bool _showScrollToBottom = false;
+  bool _isPaginatedView = false;
+  int _currentBlockIndex = 0;
+  final TextEditingController _blockNumberController = TextEditingController();
+  int? _pendingBlockIndex;
 
   @override
   void initState() {
     super.initState();
     widget.scrollController?.addListener(_scrollListener);
+    _blockNumberController.text = (_currentBlockIndex + 1).toString();
+  }
+
+  @override
+  void didUpdateWidget(CardColumn oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.selectedPage.id != widget.selectedPage.id) {
+      _currentBlockIndex = 0;
+      _blockNumberController.text = '1';
+      _pendingBlockIndex = null;
+    }
+    if (_pendingBlockIndex != null) {
+      if (_pendingBlockIndex! >= 0 && _pendingBlockIndex! < widget.cards.length) {
+        _currentBlockIndex = _pendingBlockIndex!;
+        _blockNumberController.text = (_currentBlockIndex + 1).toString();
+        _pendingBlockIndex = null;
+      }
+    }
+    if (_currentBlockIndex >= widget.cards.length) {
+      _currentBlockIndex = widget.cards.isEmpty ? 0 : widget.cards.length - 1;
+      _blockNumberController.text = (_currentBlockIndex + 1).toString();
+    }
   }
 
   @override
   void dispose() {
     widget.scrollController?.removeListener(_scrollListener);
+    _blockNumberController.dispose();
     super.dispose();
   }
 
@@ -117,6 +144,183 @@ class _CardColumnState extends State<CardColumn> {
     widget.onCardsReordered(newCards.map((c) => c.id).toList());
   }
 
+  Widget _buildBottomBar() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      decoration: const BoxDecoration(
+        color: Color(0xFF1E1E1E),
+        border: Border(
+          top: BorderSide(color: Color(0xFF2C2C2C)),
+        ),
+      ),
+      child: SafeArea(
+        top: false,
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            // Unified compact mode toggle button on left
+            GestureDetector(
+              onTap: () {
+                setState(() {
+                  _isPaginatedView = !_isPaginatedView;
+                  if (_isPaginatedView) {
+                    if (_currentBlockIndex >= widget.cards.length) {
+                      _currentBlockIndex = widget.cards.isEmpty ? 0 : widget.cards.length - 1;
+                    }
+                    _blockNumberController.text = (_currentBlockIndex + 1).toString();
+                  }
+                });
+              },
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                decoration: BoxDecoration(
+                  color: _isPaginatedView 
+                      ? const Color(0xFF818CF8).withOpacity(0.12) 
+                      : Colors.white.withValues(alpha: 0.02),
+                  border: Border.all(
+                    color: _isPaginatedView 
+                        ? const Color(0xFF818CF8).withOpacity(0.35) 
+                        : Colors.white.withValues(alpha: 0.05),
+                  ),
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      _isPaginatedView ? Icons.crop_din_outlined : Icons.unfold_more_outlined,
+                      size: 14,
+                      color: _isPaginatedView ? const Color(0xFF818CF8) : const Color(0xFFCBD5E1),
+                    ),
+                    const SizedBox(width: 6),
+                    Text(
+                      _isPaginatedView ? 'Block View' : 'Scroll View',
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.bold,
+                        color: _isPaginatedView ? const Color(0xFF818CF8) : const Color(0xFFCBD5E1),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            
+            // Compact pagination on right with jump-to-start and jump-to-end support
+            if (_isPaginatedView && widget.cards.isNotEmpty)
+              Container(
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.02),
+                  borderRadius: BorderRadius.circular(6),
+                  border: Border.all(color: Colors.white.withValues(alpha: 0.05)),
+                ),
+                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    // Jump to Start Block Button
+                    IconButton(
+                      icon: const Icon(Icons.first_page, size: 16, color: Color(0xFF818CF8)),
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(),
+                      onPressed: _currentBlockIndex > 0 ? () {
+                        setState(() {
+                          _currentBlockIndex = 0;
+                          _blockNumberController.text = '1';
+                        });
+                      } : null,
+                    ),
+                    const SizedBox(width: 4),
+                    // Previous Block Button
+                    IconButton(
+                      icon: const Icon(Icons.chevron_left, size: 16, color: Color(0xFF818CF8)),
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(),
+                      onPressed: _currentBlockIndex > 0 ? () {
+                        setState(() {
+                          _currentBlockIndex--;
+                          _blockNumberController.text = (_currentBlockIndex + 1).toString();
+                        });
+                      } : null,
+                    ),
+                    const SizedBox(width: 6),
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        SizedBox(
+                          width: 24,
+                          child: TextField(
+                            controller: _blockNumberController,
+                            keyboardType: TextInputType.number,
+                            textAlign: TextAlign.center,
+                            style: const TextStyle(fontSize: 11, color: Colors.white, fontWeight: FontWeight.bold),
+                            decoration: const InputDecoration(
+                              isDense: true,
+                              contentPadding: EdgeInsets.zero,
+                              border: InputBorder.none,
+                              focusedBorder: InputBorder.none,
+                              enabledBorder: InputBorder.none,
+                            ),
+                            onSubmitted: (val) {
+                              final parsed = int.tryParse(val);
+                              if (parsed != null && parsed >= 1 && parsed <= widget.cards.length) {
+                                setState(() {
+                                  _currentBlockIndex = parsed - 1;
+                                });
+                              } else {
+                                _blockNumberController.text = (_currentBlockIndex + 1).toString();
+                              }
+                            },
+                          ),
+                        ),
+                        const Text('/', style: TextStyle(fontSize: 10, color: Color(0xFF3F3F46))),
+                        const SizedBox(width: 2),
+                        Text(
+                          '${widget.cards.length}',
+                          style: const TextStyle(fontSize: 11, color: Color(0xFF71717A), fontWeight: FontWeight.bold),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(width: 6),
+                    // Next Block Button
+                    IconButton(
+                      icon: const Icon(Icons.chevron_right, size: 16, color: Color(0xFF818CF8)),
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(),
+                      onPressed: _currentBlockIndex < widget.cards.length - 1 ? () {
+                        setState(() {
+                          _currentBlockIndex++;
+                          _blockNumberController.text = (_currentBlockIndex + 1).toString();
+                        });
+                      } : null,
+                    ),
+                    const SizedBox(width: 4),
+                    // Jump to End Block Button
+                    IconButton(
+                      icon: const Icon(Icons.last_page, size: 16, color: Color(0xFF818CF8)),
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(),
+                      onPressed: _currentBlockIndex < widget.cards.length - 1 ? () {
+                        setState(() {
+                          _currentBlockIndex = widget.cards.length - 1;
+                          _blockNumberController.text = widget.cards.length.toString();
+                        });
+                      } : null,
+                    ),
+                  ],
+                ),
+              )
+            else if (!_isPaginatedView)
+              const Text(
+                'CONTINUOUS',
+                style: TextStyle(fontSize: 9, color: Color(0xFF52525B), fontWeight: FontWeight.bold, letterSpacing: 0.5),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     if (widget.cards.isEmpty) {
@@ -160,27 +364,46 @@ class _CardColumnState extends State<CardColumn> {
 
     return Stack(
       children: [
-        ReorderableListView(
-          scrollController: widget.scrollController,
-          padding: const EdgeInsets.fromLTRB(20, 8, 20, 100),
-          onReorder: _onReorder,
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            for (final entry in widget.cards.asMap().entries)
-              Column(
-                key: ValueKey(entry.value.id),
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  _buildInsertButton(entry.key),
-                  _buildCard(entry.value, entry.key),
-                  if (entry.key == widget.cards.length - 1) _buildInsertButton(entry.key + 1),
-                ],
-              ),
+            Expanded(
+              child: _isPaginatedView
+                  ? SingleChildScrollView(
+                      padding: const EdgeInsets.fromLTRB(20, 8, 20, 100),
+                      child: Column(
+                        children: [
+                          _buildInsertButton(_currentBlockIndex),
+                          _buildCard(widget.cards[_currentBlockIndex], _currentBlockIndex),
+                          _buildInsertButton(_currentBlockIndex + 1),
+                        ],
+                      ),
+                    )
+                  : ReorderableListView(
+                      scrollController: widget.scrollController,
+                      padding: const EdgeInsets.fromLTRB(20, 8, 20, 100),
+                      onReorder: _onReorder,
+                      children: [
+                        for (final entry in widget.cards.asMap().entries)
+                          Column(
+                            key: ValueKey(entry.value.id),
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              _buildInsertButton(entry.key),
+                              _buildCard(entry.value, entry.key),
+                              if (entry.key == widget.cards.length - 1) _buildInsertButton(entry.key + 1),
+                            ],
+                          ),
+                      ],
+                    ),
+            ),
+            _buildBottomBar(),
           ],
         ),
-        if (_showScrollToBottom)
+        if (_showScrollToBottom && !_isPaginatedView)
           Positioned(
             right: 20,
-            bottom: 20,
+            bottom: 60, // Shifted up slightly to prevent overlapping the bottom bar
             child: FloatingActionButton.small(
               heroTag: null,
               backgroundColor: const Color(0xFF818CF8),
@@ -201,7 +424,12 @@ class _CardColumnState extends State<CardColumn> {
 
   Widget _emptyPageBlockTrigger(String label, String type, IconData icon, {String initialContent = ''}) {
     return ElevatedButton.icon(
-      onPressed: () => widget.onCardAdded(widget.selectedPage.id, type, initialContent, insertAt: 0),
+      onPressed: () {
+        if (_isPaginatedView) {
+          _pendingBlockIndex = 0;
+        }
+        widget.onCardAdded(widget.selectedPage.id, type, initialContent, insertAt: 0);
+      },
       icon: Icon(icon, size: 16),
       label: Text(label),
       style: ElevatedButton.styleFrom(
@@ -367,6 +595,7 @@ class _CardColumnState extends State<CardColumn> {
 
   Widget _buildCardContent(models.Card card) {
     final index = _cardIndex(card);
+    final displayIndex = index + 1;
     switch (card.type) {
       case 'markdown':
         return MarkdownCard(
@@ -375,7 +604,7 @@ class _CardColumnState extends State<CardColumn> {
           onDelete: () => widget.onCardDeleted(card.id),
           onMoveUp: index > 0 ? () => _moveCard(index, -1) : null,
           onMoveDown: index < widget.cards.length - 1 ? () => _moveCard(index, 1) : null,
-          cardIndex: index,
+          cardIndex: displayIndex,
         );
       case 'image':
         return ImageCard(
@@ -384,7 +613,7 @@ class _CardColumnState extends State<CardColumn> {
           onDelete: () => widget.onCardDeleted(card.id),
           onMoveUp: index > 0 ? () => _moveCard(index, -1) : null,
           onMoveDown: index < widget.cards.length - 1 ? () => _moveCard(index, 1) : null,
-          cardIndex: index,
+          cardIndex: displayIndex,
           dbService: widget.dbService,
         );
       case 'subpage_link':
@@ -398,7 +627,7 @@ class _CardColumnState extends State<CardColumn> {
           onDelete: () => widget.onCardDeleted(card.id),
           onMoveUp: index > 0 ? () => _moveCard(index, -1) : null,
           onMoveDown: index < widget.cards.length - 1 ? () => _moveCard(index, 1) : null,
-          cardIndex: index,
+          cardIndex: displayIndex,
           dbService: widget.dbService,
         );
       case 'code':
@@ -408,7 +637,7 @@ class _CardColumnState extends State<CardColumn> {
           onDelete: () => widget.onCardDeleted(card.id),
           onMoveUp: index > 0 ? () => _moveCard(index, -1) : null,
           onMoveDown: index < widget.cards.length - 1 ? () => _moveCard(index, 1) : null,
-          cardIndex: index,
+          cardIndex: displayIndex,
         );
       case 'sites':
         return SitesCard(
@@ -417,7 +646,7 @@ class _CardColumnState extends State<CardColumn> {
           onDelete: () => widget.onCardDeleted(card.id),
           onMoveUp: index > 0 ? () => _moveCard(index, -1) : null,
           onMoveDown: index < widget.cards.length - 1 ? () => _moveCard(index, 1) : null,
-          cardIndex: index,
+          cardIndex: displayIndex,
         );
       default:
         return MarkdownCard(
@@ -426,7 +655,7 @@ class _CardColumnState extends State<CardColumn> {
           onDelete: () => widget.onCardDeleted(card.id),
           onMoveUp: index > 0 ? () => _moveCard(index, -1) : null,
           onMoveDown: index < widget.cards.length - 1 ? () => _moveCard(index, 1) : null,
-          cardIndex: index,
+          cardIndex: displayIndex,
         );
     }
   }
@@ -523,6 +752,9 @@ class _CardColumnState extends State<CardColumn> {
       subtitle: Text(subtitle, style: const TextStyle(color: Colors.grey, fontSize: 11)),
       onTap: () {
         Navigator.pop(ctx);
+        if (_isPaginatedView) {
+          _pendingBlockIndex = index;
+        }
         widget.onCardAdded(widget.selectedPage.id, type, initialContent, insertAt: index);
       },
     );

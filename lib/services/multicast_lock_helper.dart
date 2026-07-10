@@ -3,7 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
 class MulticastLockHelper {
-  static const _channel = MethodChannel('com.example.pocketdatabase/wifi');
+  static const _channel = MethodChannel('com.example.cero/wifi');
 
   static Future<void> acquire() async {
     if (!Platform.isAndroid) return;

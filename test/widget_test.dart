@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:pocketdatabase/main.dart';
-import 'package:pocketdatabase/services/server_service.dart';
+import 'package:cero/main.dart';
+import 'package:cero/services/server_service.dart';
 
 void main() {
   testWidgets('Cero Mobile Smoke Test', (WidgetTester tester) async {
