@@ -1,0 +1,283 @@
+import 'package:flutter/material.dart';
+import 'package:gpt_markdown/gpt_markdown.dart';
+import '../models/card_model.dart' as models;
+import '../services/server_service.dart';
+import '../widgets/card_column.dart';
+
+class CommentsScreen extends StatefulWidget {
+  final models.Card card;
+  final int cardIndex;
+  final ServerService serverService;
+  final VoidCallback onCommentsUpdated;
+
+  const CommentsScreen({
+    super.key,
+    required this.card,
+    required this.cardIndex,
+    required this.serverService,
+    required this.onCommentsUpdated,
+  });
+
+  @override
+  State<CommentsScreen> createState() => _CommentsScreenState();
+}
+
+class _CommentsScreenState extends State<CommentsScreen> {
+  late models.Card _currentCard;
+  final TextEditingController _commentController = TextEditingController();
+  final ScrollController _scrollController = ScrollController();
+
+  @override
+  void initState() {
+    super.initState();
+    _currentCard = widget.card;
+  }
+
+  @override
+  void dispose() {
+    _commentController.dispose();
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _addComment() async {
+    final text = _commentController.text.trim();
+    if (text.isEmpty) return;
+
+    final meta = CardMetadata.fromJsonString(_currentCard.comment);
+    final updatedComments = List<String>.from(meta.comments)..add(text);
+    final newMeta = CardMetadata(color: meta.color, comments: updatedComments);
+    final newMetaJson = newMeta.toJsonString();
+
+    await widget.serverService.updateCard(
+      id: _currentCard.id,
+      comment: newMetaJson,
+    );
+
+    _commentController.clear();
+
+    setState(() {
+      _currentCard = _currentCard.copyWith(comment: newMetaJson);
+    });
+
+    widget.onCommentsUpdated();
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_scrollController.hasClients) {
+        _scrollController.animateTo(
+          _scrollController.position.maxScrollExtent,
+          duration: const Duration(milliseconds: 300),
+          curve: Curves.easeOut,
+        );
+      }
+    });
+  }
+
+  Future<void> _deleteComment(int index) async {
+    final meta = CardMetadata.fromJsonString(_currentCard.comment);
+    if (index < 0 || index >= meta.comments.length) return;
+
+    final updatedComments = List<String>.from(meta.comments)..removeAt(index);
+    final newMeta = CardMetadata(color: meta.color, comments: updatedComments);
+    final newMetaJson = newMeta.toJsonString();
+
+    await widget.serverService.updateCard(
+      id: _currentCard.id,
+      comment: newMetaJson,
+    );
+
+    setState(() {
+      _currentCard = _currentCard.copyWith(comment: newMetaJson);
+    });
+
+    widget.onCommentsUpdated();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final meta = CardMetadata.fromJsonString(_currentCard.comment);
+    final comments = meta.comments;
+
+    return Scaffold(
+      backgroundColor: const Color(0xFF191919),
+      appBar: AppBar(
+        backgroundColor: const Color(0xFF202020),
+        elevation: 0,
+        title: Text(
+          'Block #${widget.cardIndex} Notes',
+          style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
+        ),
+      ),
+      body: Column(
+        children: [
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(16),
+            decoration: const BoxDecoration(
+              color: Color(0xFF1E1E1E),
+              border: Border(
+                bottom: BorderSide(color: Color(0xFF2C2C2C)),
+              ),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'CARD CONTENT CONTEXT',
+                  style: TextStyle(
+                    fontSize: 10,
+                    fontWeight: FontWeight.bold,
+                    color: Color(0xFF64748B),
+                    letterSpacing: 0.8,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Container(
+                  constraints: const BoxConstraints(maxHeight: 90),
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF151515),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: const Color(0xFF2C2C2C)),
+                  ),
+                  child: SingleChildScrollView(
+                    child: GptMarkdown(
+                      _currentCard.content.trim().isEmpty
+                          ? '*Empty markdown card*'
+                          : _currentCard.content,
+                      style: const TextStyle(fontSize: 12, height: 1.5, color: Color(0xFFCBD5E1)),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+          Expanded(
+            child: comments.isEmpty
+                ? Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        const Icon(
+                          Icons.chat_bubble_outline_rounded,
+                          size: 44,
+                          color: Color(0xFF3F3F46),
+                        ),
+                        const SizedBox(height: 12),
+                        const Text(
+                          'No notes added yet',
+                          style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.grey,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        const Text(
+                          'Add context notes for this block below.',
+                          style: TextStyle(fontSize: 11, color: Color(0xFF64748B)),
+                        ),
+                      ],
+                    ),
+                  )
+                : ListView.builder(
+                    controller: _scrollController,
+                    padding: const EdgeInsets.all(16),
+                    itemCount: comments.length,
+                    itemBuilder: (context, idx) {
+                      final comment = comments[idx];
+                      return Container(
+                        margin: const EdgeInsets.only(bottom: 10),
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF202020),
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(color: const Color(0xFF2E2E2E)),
+                        ),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Padding(
+                              padding: EdgeInsets.only(top: 2),
+                              child: Icon(
+                                Icons.notes_rounded,
+                                size: 14,
+                                color: Color(0xFF818CF8),
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Text(
+                                comment,
+                                style: const TextStyle(
+                                  fontSize: 12.5,
+                                  color: Color(0xFFCBD5E1),
+                                  height: 1.4,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            IconButton(
+                              icon: const Icon(
+                                Icons.delete_outline,
+                                size: 15,
+                                color: Colors.redAccent,
+                              ),
+                              padding: EdgeInsets.zero,
+                              constraints: const BoxConstraints(),
+                              onPressed: () => _deleteComment(idx),
+                            ),
+                          ],
+                        ),
+                      );
+                    },
+                  ),
+          ),
+
+          SafeArea(
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              decoration: const BoxDecoration(
+                color: Color(0xFF202020),
+                border: Border(
+                  top: BorderSide(color: Color(0xFF2C2C2C)),
+                ),
+              ),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: _commentController,
+                      style: const TextStyle(fontSize: 13, color: Colors.white),
+                      maxLines: null,
+                      textCapitalization: TextCapitalization.sentences,
+                      decoration: const InputDecoration(
+                        hintText: 'Type additional note info...',
+                        hintStyle: TextStyle(color: Colors.grey, fontSize: 13),
+                        border: InputBorder.none,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  ElevatedButton(
+                    onPressed: _addComment,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF818CF8),
+                      foregroundColor: Colors.white,
+                      shape: const CircleBorder(),
+                      padding: const EdgeInsets.all(10),
+                      minimumSize: Size.zero,
+                    ),
+                    child: const Icon(Icons.send_rounded, size: 14),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}

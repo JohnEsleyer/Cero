@@ -4,6 +4,7 @@ import '../models/page_model.dart';
 import '../models/card_model.dart' as models;
 import '../services/database_service.dart';
 import '../services/server_service.dart';
+import '../screens/comments_screen.dart';
 import 'markdown_card.dart';
 import 'image_card.dart';
 import 'subpage_link_card.dart';
@@ -149,9 +150,7 @@ class _CardColumnState extends State<CardColumn> {
   bool _showScrollToBottom = false;
   bool _isPaginatedView = false;
   int _currentBlockIndex = 0;
-  final Map<String, bool> _commentsExpanded = {};
   final TextEditingController _blockNumberController = TextEditingController();
-  final TextEditingController _newCommentController = TextEditingController();
   int? _pendingBlockIndex;
 
   @override
@@ -186,7 +185,6 @@ class _CardColumnState extends State<CardColumn> {
   void dispose() {
     widget.scrollController?.removeListener(_scrollListener);
     _blockNumberController.dispose();
-    _newCommentController.dispose();
     super.dispose();
   }
 
@@ -559,7 +557,6 @@ class _CardColumnState extends State<CardColumn> {
 
     final meta = CardMetadata.fromJsonString(card.comment);
     final activePreset = colorPresets[meta.color] ?? colorPresets['default']!;
-    final isCommentsOpen = _commentsExpanded[card.id] ?? false;
 
     return Container(
       width: double.infinity,
@@ -602,15 +599,63 @@ class _CardColumnState extends State<CardColumn> {
                     ),
                   ),
                   if (card.type == 'markdown') ...[
-                    _buildHeaderActionButton(
-                      icon: Icons.comment_outlined,
-                      color: meta.comments.isNotEmpty ? const Color(0xFF818CF8) : activePreset.textMuted,
-                      size: 13,
-                      onPressed: () {
-                        setState(() {
-                          _commentsExpanded[card.id] = !isCommentsOpen;
-                        });
+                    GestureDetector(
+                      onTap: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => CommentsScreen(
+                              card: card,
+                              cardIndex: index + 1,
+                              serverService: widget.serverService,
+                              onCommentsUpdated: () {
+                                widget.onCardUpdated(card.id, card.content);
+                              },
+                            ),
+                          ),
+                        );
                       },
+                      behavior: HitTestBehavior.opaque,
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 4),
+                        child: Stack(
+                          clipBehavior: Clip.none,
+                          children: [
+                            Icon(
+                              Icons.comment_outlined,
+                              size: 13,
+                              color: meta.comments.isNotEmpty
+                                  ? const Color(0xFF818CF8)
+                                  : activePreset.textMuted,
+                            ),
+                            if (meta.comments.isNotEmpty)
+                              Positioned(
+                                top: -6,
+                                right: -6,
+                                child: Container(
+                                  padding: const EdgeInsets.all(2),
+                                  decoration: const BoxDecoration(
+                                    color: Color(0xFF818CF8),
+                                    shape: BoxShape.circle,
+                                  ),
+                                  constraints: const BoxConstraints(
+                                    minWidth: 11,
+                                    minHeight: 11,
+                                  ),
+                                  child: Text(
+                                    '${meta.comments.length}',
+                                    style: const TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 7,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                    textAlign: TextAlign.center,
+                                  ),
+                                ),
+                              ),
+                          ],
+                        ),
+                      ),
                     ),
                     const SizedBox(width: 4),
                   ],
@@ -644,8 +689,6 @@ class _CardColumnState extends State<CardColumn> {
             ),
             const Divider(height: 1, color: Color(0xFF2C2C2C)),
             _buildCardContent(card),
-            if (card.type == 'markdown' && isCommentsOpen)
-              _buildMarkdownCommentsSection(card, meta, activePreset),
           ],
         ),
       ),
@@ -675,102 +718,6 @@ class _CardColumnState extends State<CardColumn> {
           ),
         );
       }).toList(),
-    );
-  }
-
-  Widget _buildMarkdownCommentsSection(models.Card card, CardMetadata meta, CardColorPreset activePreset) {
-    return Container(
-      decoration: const BoxDecoration(
-        color: Color(0xFF141416),
-        borderRadius: BorderRadius.only(bottomLeft: Radius.circular(12), bottomRight: Radius.circular(12)),
-      ),
-      padding: const EdgeInsets.all(10),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          const Text(
-            'BLOCK COMMENTS',
-            style: TextStyle(fontSize: 8.5, fontWeight: FontWeight.bold, color: Colors.grey, letterSpacing: 0.5),
-          ),
-          const SizedBox(height: 6),
-          if (meta.comments.isEmpty)
-            const Padding(
-              padding: EdgeInsets.symmetric(vertical: 8.0),
-              child: Text('No comments written yet.', style: TextStyle(fontSize: 10, color: Colors.grey)),
-            )
-          else
-            ListView.builder(
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              itemCount: meta.comments.length,
-              itemBuilder: (context, cIdx) {
-                return Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 3.0),
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text('• ', style: TextStyle(color: Colors.grey, fontSize: 11)),
-                      Expanded(
-                        child: Text(
-                          meta.comments[cIdx],
-                          style: const TextStyle(color: Colors.white70, fontSize: 11),
-                        ),
-                      ),
-                      GestureDetector(
-                        onTap: () async {
-                          final List<String> updatedComments = List.from(meta.comments)..removeAt(cIdx);
-                          final newMeta = CardMetadata(color: meta.color, comments: updatedComments);
-                          await widget.serverService.updateCard(id: card.id, comment: newMeta.toJsonString());
-                          await widget.onCardUpdated(card.id, card.content);
-                        },
-                        child: const Icon(Icons.close, size: 11, color: Colors.grey),
-                      ),
-                    ],
-                  ),
-                );
-              },
-            ),
-          const SizedBox(height: 8),
-          Row(
-            children: [
-              Expanded(
-                child: TextField(
-                  controller: _newCommentController,
-                  style: const TextStyle(color: Colors.white, fontSize: 11),
-                  decoration: InputDecoration(
-                    hintText: 'Type a comment...',
-                    hintStyle: const TextStyle(color: Colors.grey, fontSize: 11),
-                    isDense: true,
-                    contentPadding: const EdgeInsets.symmetric(vertical: 6, horizontal: 8),
-                    fillColor: const Color(0xFF222225),
-                    filled: true,
-                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(4), borderSide: BorderSide.none),
-                  ),
-                ),
-              ),
-              const SizedBox(width: 6),
-              ElevatedButton(
-                onPressed: () async {
-                  final text = _newCommentController.text.trim();
-                  if (text.isEmpty) return;
-                  final List<String> updatedComments = List.from(meta.comments)..add(text);
-                  final newMeta = CardMetadata(color: meta.color, comments: updatedComments);
-                  await widget.serverService.updateCard(id: card.id, comment: newMeta.toJsonString());
-                  _newCommentController.clear();
-                  await widget.onCardUpdated(card.id, card.content);
-                },
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF818CF8),
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                  minimumSize: Size.zero,
-                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                ),
-                child: const Icon(Icons.send, size: 10, color: Colors.white),
-              )
-            ],
-          ),
-        ],
-      ),
     );
   }
 
