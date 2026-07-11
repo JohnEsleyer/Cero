@@ -1,4 +1,4 @@
-import 'dart:math';
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import '../models/page_model.dart';
 import '../models/card_model.dart' as models;
@@ -11,10 +11,104 @@ import 'code_card.dart';
 import 'sites_card.dart';
 import 'page_icon.dart';
 
-String _generateId() {
-  final rand = Random.secure();
-  const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
-  return List.generate(12, (_) => chars[rand.nextInt(chars.length)]).join();
+class CardColorPreset {
+  final Color bg;
+  final Color text;
+  final Color border;
+  final Color textMuted;
+  final String label;
+
+  const CardColorPreset({
+    required this.bg,
+    required this.text,
+    required this.border,
+    required this.textMuted,
+    required this.label,
+  });
+}
+
+const Map<String, CardColorPreset> colorPresets = {
+  'default': CardColorPreset(
+    bg: Color(0xFF1E1E1E),
+    text: Color(0xFFCBD5E1),
+    border: Color(0xFF2E2E2E),
+    textMuted: Color(0xFF71717A),
+    label: 'Default',
+  ),
+  'red': CardColorPreset(
+    bg: Color(0xFFFEE2E2),
+    text: Color(0xFF991B1B),
+    border: Color(0xFFFCA5A5),
+    textMuted: Color(0xFFB91C1C),
+    label: 'Red',
+  ),
+  'orange': CardColorPreset(
+    bg: Color(0xFFFFEDD5),
+    text: Color(0xFF9A3412),
+    border: Color(0xFFFDBA74),
+    textMuted: Color(0xFFC2410C),
+    label: 'Orange',
+  ),
+  'yellow': CardColorPreset(
+    bg: Color(0xFFFEF9C3),
+    text: Color(0xFF854D0E),
+    border: Color(0xFFFDE047),
+    textMuted: Color(0xFFA16207),
+    label: 'Yellow',
+  ),
+  'green': CardColorPreset(
+    bg: Color(0xFFD1FAE5),
+    text: Color(0xFF065F46),
+    border: Color(0xFF6EE7B7),
+    textMuted: Color(0xFF047857),
+    label: 'Green',
+  ),
+  'blue': CardColorPreset(
+    bg: Color(0xFFDBEAFE),
+    text: Color(0xFF1E40AF),
+    border: Color(0xFF93C5FD),
+    textMuted: Color(0xFF1D4ED8),
+    label: 'Blue',
+  ),
+  'purple': CardColorPreset(
+    bg: Color(0xFFF3E8FF),
+    text: Color(0xFF6B21A8),
+    border: Color(0xFFC084FC),
+    textMuted: Color(0xFF7E22CE),
+    label: 'Purple',
+  ),
+};
+
+class CardMetadata {
+  final String color;
+  final List<String> comments;
+
+  CardMetadata({this.color = 'default', this.comments = const []});
+
+  factory CardMetadata.fromJsonString(String? jsonStr) {
+    if (jsonStr == null || jsonStr.isEmpty) {
+      return CardMetadata();
+    }
+    try {
+      final Map<String, dynamic> data = jsonDecode(jsonStr);
+      final color = data['color'] as String? ?? 'default';
+      final commentsList = data['comments'] as List<dynamic>? ?? [];
+      final comments = commentsList.map((e) => e.toString()).toList();
+      return CardMetadata(color: color, comments: comments);
+    } catch (_) {
+      if (colorPresets.containsKey(jsonStr)) {
+        return CardMetadata(color: jsonStr);
+      }
+      return CardMetadata(color: 'default', comments: [jsonStr]);
+    }
+  }
+
+  String toJsonString() {
+    return jsonEncode({
+      'color': color,
+      'comments': comments,
+    });
+  }
 }
 
 class CardColumn extends StatefulWidget {
@@ -38,13 +132,13 @@ class CardColumn extends StatefulWidget {
     required this.selectedPage,
     required this.onNavigateToPage,
     required this.onCardUpdated,
-    required this.onCardAdded,
     required this.onCardDeleted,
     required this.onCardsReordered,
     required this.serverService,
     this.onCreateNewPage,
     this.scrollController,
     this.dbService,
+    required this.onCardAdded,
   });
 
   @override
@@ -55,7 +149,9 @@ class _CardColumnState extends State<CardColumn> {
   bool _showScrollToBottom = false;
   bool _isPaginatedView = false;
   int _currentBlockIndex = 0;
+  final Map<String, bool> _commentsExpanded = {};
   final TextEditingController _blockNumberController = TextEditingController();
+  final TextEditingController _newCommentController = TextEditingController();
   int? _pendingBlockIndex;
 
   @override
@@ -90,6 +186,7 @@ class _CardColumnState extends State<CardColumn> {
   void dispose() {
     widget.scrollController?.removeListener(_scrollListener);
     _blockNumberController.dispose();
+    _newCommentController.dispose();
     super.dispose();
   }
 
@@ -106,23 +203,6 @@ class _CardColumnState extends State<CardColumn> {
     if (shouldShow != _showScrollToBottom) {
       setState(() => _showScrollToBottom = shouldShow);
     }
-  }
-
-  void _openCommentsBottomSheet(models.Card card) {
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: const Color(0xFF141416),
-      isScrollControlled: true,
-      elevation: 0,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (ctx) => _CommentsBottomSheetContent(
-        initialCard: card,
-        serverService: widget.serverService,
-        onCardUpdated: widget.onCardUpdated,
-      ),
-    );
   }
 
   int _cardIndex(models.Card card) => widget.cards.indexWhere((c) => c.id == card.id);
@@ -149,16 +229,13 @@ class _CardColumnState extends State<CardColumn> {
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
       decoration: const BoxDecoration(
         color: Color(0xFF1E1E1E),
-        border: Border(
-          top: BorderSide(color: Color(0xFF2C2C2C)),
-        ),
+        border: Border(top: BorderSide(color: Color(0xFF2C2C2C))),
       ),
       child: SafeArea(
         top: false,
         child: Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            // Unified compact mode toggle button on left
             GestureDetector(
               onTap: () {
                 setState(() {
@@ -205,8 +282,6 @@ class _CardColumnState extends State<CardColumn> {
                 ),
               ),
             ),
-            
-            // Compact pagination on right with jump-to-start and jump-to-end support
             if (_isPaginatedView && widget.cards.isNotEmpty)
               Container(
                 decoration: BoxDecoration(
@@ -218,7 +293,6 @@ class _CardColumnState extends State<CardColumn> {
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    // Jump to Start Block Button
                     IconButton(
                       icon: const Icon(Icons.first_page, size: 16, color: Color(0xFF818CF8)),
                       padding: EdgeInsets.zero,
@@ -231,7 +305,6 @@ class _CardColumnState extends State<CardColumn> {
                       } : null,
                     ),
                     const SizedBox(width: 4),
-                    // Previous Block Button
                     IconButton(
                       icon: const Icon(Icons.chevron_left, size: 16, color: Color(0xFF818CF8)),
                       padding: EdgeInsets.zero,
@@ -258,8 +331,6 @@ class _CardColumnState extends State<CardColumn> {
                               isDense: true,
                               contentPadding: EdgeInsets.zero,
                               border: InputBorder.none,
-                              focusedBorder: InputBorder.none,
-                              enabledBorder: InputBorder.none,
                             ),
                             onSubmitted: (val) {
                               final parsed = int.tryParse(val);
@@ -282,7 +353,6 @@ class _CardColumnState extends State<CardColumn> {
                       ],
                     ),
                     const SizedBox(width: 6),
-                    // Next Block Button
                     IconButton(
                       icon: const Icon(Icons.chevron_right, size: 16, color: Color(0xFF818CF8)),
                       padding: EdgeInsets.zero,
@@ -295,7 +365,6 @@ class _CardColumnState extends State<CardColumn> {
                       } : null,
                     ),
                     const SizedBox(width: 4),
-                    // Jump to End Block Button
                     IconButton(
                       icon: const Icon(Icons.last_page, size: 16, color: Color(0xFF818CF8)),
                       padding: EdgeInsets.zero,
@@ -338,7 +407,7 @@ class _CardColumnState extends State<CardColumn> {
               ),
               const SizedBox(height: 8),
               const Text(
-                'Add blocks to start writing and organizing your thoughts.',
+                'Add blocks to start writing and organizing.',
                 textAlign: TextAlign.center,
                 style: TextStyle(fontSize: 13, color: Color(0xFF64748B)),
               ),
@@ -351,8 +420,8 @@ class _CardColumnState extends State<CardColumn> {
                   _emptyPageBlockTrigger('Markdown', 'markdown', Icons.text_fields),
                   _emptyPageBlockTrigger('Image', 'image', Icons.image_outlined),
                   _emptyPageBlockTrigger('Link', 'subpage_link', Icons.link),
-                  _emptyPageBlockTrigger('Code Block', 'code', Icons.code, initialContent: 'javascript\nconsole.log("Hello from Cero Code!");\n'),
-                  _emptyPageBlockTrigger('HTML Site', 'sites', Icons.web, initialContent: '{"name": "Interactive Site Widget", "description": "Sandboxed HTML preview widget", "html": "<h1>Welcome directly to Sandboxed Environment!</h1>"}'),
+                  _emptyPageBlockTrigger('Code Block', 'code', Icons.code, initialContent: 'javascript\nconsole.log("Hello!");\n'),
+                  _emptyPageBlockTrigger('HTML Site', 'sites', Icons.web, initialContent: '{"name": "Site Widget", "html": "<h1>Hello Sandbox</h1>"}'),
                   _emptyPageBlockTrigger('Section Divider', 'section', Icons.title_outlined, initialContent: 'New Section'),
                 ],
               ),
@@ -403,7 +472,7 @@ class _CardColumnState extends State<CardColumn> {
         if (_showScrollToBottom && !_isPaginatedView)
           Positioned(
             right: 20,
-            bottom: 60, // Shifted up slightly to prevent overlapping the bottom bar
+            bottom: 60,
             child: FloatingActionButton.small(
               heroTag: null,
               backgroundColor: const Color(0xFF818CF8),
@@ -466,54 +535,241 @@ class _CardColumnState extends State<CardColumn> {
     );
   }
 
+  Widget _buildHeaderActionButton({
+    required IconData icon,
+    required Color color,
+    required VoidCallback onPressed,
+    double size = 12.0,
+    String? tooltip,
+  }) {
+    return GestureDetector(
+      onTap: onPressed,
+      behavior: HitTestBehavior.opaque,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 4),
+        child: Icon(icon, size: size, color: color),
+      ),
+    );
+  }
+
   Widget _buildCard(models.Card card, int index) {
     if (card.type == 'section') {
       return _buildSectionDividerCard(card, index);
     }
 
-    Color leftIndicatorColor = Colors.transparent;
-    switch (card.type) {
-      case 'markdown':
-        leftIndicatorColor = const Color(0xFF71717A);
-        break;
-      case 'image':
-        leftIndicatorColor = const Color(0xFFA855F7);
-        break;
-      case 'subpage_link':
-        leftIndicatorColor = const Color(0xFF3B82F6);
-        break;
-      case 'code':
-        leftIndicatorColor = const Color(0xFFEC4899);
-        break;
-      case 'sites':
-        leftIndicatorColor = const Color(0xFF10B981);
-        break;
-    }
+    final meta = CardMetadata.fromJsonString(card.comment);
+    final activePreset = colorPresets[meta.color] ?? colorPresets['default']!;
+    final isCommentsOpen = _commentsExpanded[card.id] ?? false;
 
     return Container(
       width: double.infinity,
       margin: const EdgeInsets.symmetric(vertical: 4),
       decoration: BoxDecoration(
-        color: const Color(0xFF18181A),
+        color: activePreset.bg,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: const Color(0xFF262629)),
+        border: Border.all(color: activePreset.border),
       ),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(12),
-        child: Container(
-          decoration: BoxDecoration(
-            border: Border(
-              left: BorderSide(color: leftIndicatorColor, width: 4),
-            ),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              _buildCardContent(card),
-              _buildSleekInteractiveCommentStrip(card),
-            ],
+      child: Theme(
+        data: ThemeData(
+          textTheme: TextTheme(
+            bodyMedium: TextStyle(color: activePreset.text),
           ),
         ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              child: Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: activePreset.textMuted.withOpacity(0.15),
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: Text(
+                      '#${index + 1}',
+                      style: TextStyle(fontSize: 9, color: activePreset.text, fontWeight: FontWeight.bold),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      card.type.toUpperCase(),
+                      style: TextStyle(fontSize: 8.5, color: activePreset.textMuted, fontWeight: FontWeight.w800, letterSpacing: 0.5),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  if (card.type == 'markdown') ...[
+                    _buildHeaderActionButton(
+                      icon: Icons.comment_outlined,
+                      color: meta.comments.isNotEmpty ? const Color(0xFF818CF8) : activePreset.textMuted,
+                      size: 13,
+                      onPressed: () {
+                        setState(() {
+                          _commentsExpanded[card.id] = !isCommentsOpen;
+                        });
+                      },
+                    ),
+                    const SizedBox(width: 4),
+                  ],
+                  SizedBox(width: 16, child: _buildColorPicker(card, meta, activePreset)),
+                  const SizedBox(width: 8),
+                  if (index > 0)
+                    _buildHeaderActionButton(
+                      icon: Icons.arrow_upward,
+                      color: activePreset.textMuted,
+                      size: 15,
+                      onPressed: () => _moveCard(index, -1),
+                    ),
+                  if (index > 0 && index < widget.cards.length - 1)
+                    const SizedBox(width: 4),
+                  if (index < widget.cards.length - 1)
+                    _buildHeaderActionButton(
+                      icon: Icons.arrow_downward,
+                      color: activePreset.textMuted,
+                      size: 15,
+                      onPressed: () => _moveCard(index, 1),
+                    ),
+                  const SizedBox(width: 16),
+                  _buildHeaderActionButton(
+                    icon: Icons.delete_outline,
+                    color: Colors.redAccent,
+                    size: 14,
+                    onPressed: () => widget.onCardDeleted(card.id),
+                  ),
+                ],
+              ),
+            ),
+            const Divider(height: 1, color: Color(0xFF2C2C2C)),
+            _buildCardContent(card),
+            if (card.type == 'markdown' && isCommentsOpen)
+              _buildMarkdownCommentsSection(card, meta, activePreset),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildColorPicker(models.Card card, CardMetadata meta, CardColorPreset activePreset) {
+    return PopupMenuButton<String>(
+      icon: Icon(Icons.circle, size: 10, color: activePreset.textMuted),
+      tooltip: 'Change Block Color',
+      padding: EdgeInsets.zero,
+      constraints: const BoxConstraints(),
+      onSelected: (colorKey) async {
+        final newMeta = CardMetadata(color: colorKey, comments: meta.comments);
+        await widget.serverService.updateCard(id: card.id, comment: newMeta.toJsonString());
+        await widget.onCardUpdated(card.id, card.content);
+      },
+      itemBuilder: (context) => colorPresets.entries.map((entry) {
+        return PopupMenuItem<String>(
+          value: entry.key,
+          child: Row(
+            children: [
+              Icon(Icons.circle, size: 12, color: entry.value.textMuted),
+              const SizedBox(width: 8),
+              Text(entry.value.label, style: const TextStyle(fontSize: 12)),
+            ],
+          ),
+        );
+      }).toList(),
+    );
+  }
+
+  Widget _buildMarkdownCommentsSection(models.Card card, CardMetadata meta, CardColorPreset activePreset) {
+    return Container(
+      decoration: const BoxDecoration(
+        color: Color(0xFF141416),
+        borderRadius: BorderRadius.only(bottomLeft: Radius.circular(12), bottomRight: Radius.circular(12)),
+      ),
+      padding: const EdgeInsets.all(10),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const Text(
+            'BLOCK COMMENTS',
+            style: TextStyle(fontSize: 8.5, fontWeight: FontWeight.bold, color: Colors.grey, letterSpacing: 0.5),
+          ),
+          const SizedBox(height: 6),
+          if (meta.comments.isEmpty)
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 8.0),
+              child: Text('No comments written yet.', style: TextStyle(fontSize: 10, color: Colors.grey)),
+            )
+          else
+            ListView.builder(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              itemCount: meta.comments.length,
+              itemBuilder: (context, cIdx) {
+                return Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 3.0),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text('• ', style: TextStyle(color: Colors.grey, fontSize: 11)),
+                      Expanded(
+                        child: Text(
+                          meta.comments[cIdx],
+                          style: const TextStyle(color: Colors.white70, fontSize: 11),
+                        ),
+                      ),
+                      GestureDetector(
+                        onTap: () async {
+                          final List<String> updatedComments = List.from(meta.comments)..removeAt(cIdx);
+                          final newMeta = CardMetadata(color: meta.color, comments: updatedComments);
+                          await widget.serverService.updateCard(id: card.id, comment: newMeta.toJsonString());
+                          await widget.onCardUpdated(card.id, card.content);
+                        },
+                        child: const Icon(Icons.close, size: 11, color: Colors.grey),
+                      ),
+                    ],
+                  ),
+                );
+              },
+            ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: _newCommentController,
+                  style: const TextStyle(color: Colors.white, fontSize: 11),
+                  decoration: InputDecoration(
+                    hintText: 'Type a comment...',
+                    hintStyle: const TextStyle(color: Colors.grey, fontSize: 11),
+                    isDense: true,
+                    contentPadding: const EdgeInsets.symmetric(vertical: 6, horizontal: 8),
+                    fillColor: const Color(0xFF222225),
+                    filled: true,
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(4), borderSide: BorderSide.none),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 6),
+              ElevatedButton(
+                onPressed: () async {
+                  final text = _newCommentController.text.trim();
+                  if (text.isEmpty) return;
+                  final List<String> updatedComments = List.from(meta.comments)..add(text);
+                  final newMeta = CardMetadata(color: meta.color, comments: updatedComments);
+                  await widget.serverService.updateCard(id: card.id, comment: newMeta.toJsonString());
+                  _newCommentController.clear();
+                  await widget.onCardUpdated(card.id, card.content);
+                },
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF818CF8),
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                  minimumSize: Size.zero,
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                ),
+                child: const Icon(Icons.send, size: 10, color: Colors.white),
+              )
+            ],
+          ),
+        ],
       ),
     );
   }
@@ -562,7 +818,7 @@ class _CardColumnState extends State<CardColumn> {
                   child: Text(
                     card.content.toUpperCase(),
                     style: const TextStyle(
-                      fontSize: 16,
+                      fontSize: 14,
                       fontWeight: FontWeight.w800,
                       color: Colors.white,
                       letterSpacing: 1.0,
@@ -598,25 +854,26 @@ class _CardColumnState extends State<CardColumn> {
     final displayIndex = index + 1;
     switch (card.type) {
       case 'markdown':
+        final meta = CardMetadata.fromJsonString(card.comment);
+        final activePreset = colorPresets[meta.color] ?? colorPresets['default']!;
         return MarkdownCard(
           card: card,
           onContentChanged: (content) => widget.onCardUpdated(card.id, content),
-          onDelete: () => widget.onCardDeleted(card.id),
-          onMoveUp: index > 0 ? () => _moveCard(index, -1) : null,
-          onMoveDown: index < widget.cards.length - 1 ? () => _moveCard(index, 1) : null,
           cardIndex: displayIndex,
+          textColor: activePreset.text,
+          textMutedColor: activePreset.textMuted,
         );
       case 'image':
         return ImageCard(
           card: card,
           onContentChanged: (content) => widget.onCardUpdated(card.id, content),
-          onDelete: () => widget.onCardDeleted(card.id),
-          onMoveUp: index > 0 ? () => _moveCard(index, -1) : null,
-          onMoveDown: index < widget.cards.length - 1 ? () => _moveCard(index, 1) : null,
           cardIndex: displayIndex,
           dbService: widget.dbService,
         );
       case 'subpage_link':
+        final meta = CardMetadata.fromJsonString(card.comment);
+        final activePreset = colorPresets[meta.color] ?? colorPresets['default']!;
+
         return SubpageLinkCard(
           card: card,
           allPages: widget.allPages,
@@ -624,98 +881,35 @@ class _CardColumnState extends State<CardColumn> {
           onNavigate: widget.onNavigateToPage,
           onContentChanged: (content) => widget.onCardUpdated(card.id, content),
           onCreateNewPage: widget.onCreateNewPage,
-          onDelete: () => widget.onCardDeleted(card.id),
-          onMoveUp: index > 0 ? () => _moveCard(index, -1) : null,
-          onMoveDown: index < widget.cards.length - 1 ? () => _moveCard(index, 1) : null,
           cardIndex: displayIndex,
           dbService: widget.dbService,
+          textColor: activePreset.text,
+          borderColor: activePreset.border,
+          textMutedColor: activePreset.textMuted,
         );
       case 'code':
         return CodeCard(
           card: card,
           onContentChanged: (content) => widget.onCardUpdated(card.id, content),
-          onDelete: () => widget.onCardDeleted(card.id),
-          onMoveUp: index > 0 ? () => _moveCard(index, -1) : null,
-          onMoveDown: index < widget.cards.length - 1 ? () => _moveCard(index, 1) : null,
           cardIndex: displayIndex,
         );
       case 'sites':
         return SitesCard(
           card: card,
           onContentChanged: (content) => widget.onCardUpdated(card.id, content),
-          onDelete: () => widget.onCardDeleted(card.id),
-          onMoveUp: index > 0 ? () => _moveCard(index, -1) : null,
-          onMoveDown: index < widget.cards.length - 1 ? () => _moveCard(index, 1) : null,
           cardIndex: displayIndex,
         );
       default:
+        final meta = CardMetadata.fromJsonString(card.comment);
+        final activePreset = colorPresets[meta.color] ?? colorPresets['default']!;
         return MarkdownCard(
           card: card,
           onContentChanged: (content) => widget.onCardUpdated(card.id, content),
-          onDelete: () => widget.onCardDeleted(card.id),
-          onMoveUp: index > 0 ? () => _moveCard(index, -1) : null,
-          onMoveDown: index < widget.cards.length - 1 ? () => _moveCard(index, 1) : null,
           cardIndex: displayIndex,
+          textColor: activePreset.text,
+          textMutedColor: activePreset.textMuted,
         );
     }
-  }
-
-  Widget _buildSleekInteractiveCommentStrip(models.Card card) {
-    final comments = card.commentsList;
-    final hasComments = comments.isNotEmpty;
-
-    return InkWell(
-      onTap: () => _openCommentsBottomSheet(card),
-      borderRadius: const BorderRadius.vertical(bottom: Radius.circular(12)),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-        decoration: const BoxDecoration(
-          color: Color(0xFF141416),
-          borderRadius: BorderRadius.vertical(bottom: Radius.circular(12)),
-          border: Border(top: BorderSide(color: Color(0xFF232326))),
-        ),
-        child: Row(
-          children: [
-            Icon(
-              Icons.chat_bubble_outline_rounded,
-              size: 13,
-              color: hasComments ? const Color(0xFF818CF8) : const Color(0xFF52525B),
-            ),
-            const SizedBox(width: 8),
-            Expanded(
-              child: Text(
-                hasComments
-                    ? '${comments.length} Comment${comments.length > 1 ? 's' : ''}'
-                    : 'Add a comment...',
-                style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: hasComments ? FontWeight.w600 : FontWeight.w500,
-                  color: hasComments ? const Color(0xFF818CF8) : const Color(0xFF71717A),
-                ),
-              ),
-            ),
-            if (hasComments) ...[
-              Expanded(
-                flex: 2,
-                child: Text(
-                  comments.first.text,
-                  style: const TextStyle(
-                    fontSize: 11,
-                    color: Color(0xFF52525B),
-                    fontStyle: FontStyle.italic,
-                  ),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  textAlign: TextAlign.right,
-                ),
-              ),
-              const SizedBox(width: 4),
-            ],
-            const Icon(Icons.arrow_forward_ios_rounded, size: 10, color: Color(0xFF3F3F46)),
-          ],
-        ),
-      ),
-    );
   }
 
   void _showAddCardMenu(int index) {
@@ -735,7 +929,7 @@ class _CardColumnState extends State<CardColumn> {
               _addBlockOption(ctx, 'Markdown', 'Write formatted text', Icons.text_fields, 'markdown', '', index),
               _addBlockOption(ctx, 'Image', 'Embed visual images', Icons.image_outlined, 'image', '', index),
               _addBlockOption(ctx, 'Subpage Link', 'Create nested references', Icons.link, 'subpage_link', '', index),
-              _addBlockOption(ctx, 'Code Block', 'Syntax-highlighted code', Icons.code, 'code', 'javascript\nconsole.log("Hello from Cero Code!");\n', index),
+              _addBlockOption(ctx, 'Code Block', 'Syntax-highlighted code', Icons.code, 'code', 'javascript\nconsole.log("Hello!");\n', index),
               _addBlockOption(ctx, 'HTML Site', 'Render custom local template widgets', Icons.web, 'sites', '{"name": "Site Widget", "html": "<h1>Hello Cero Sandbox</h1>"}', index),
               _addBlockOption(ctx, 'Section Divider', 'Full-width section header', Icons.title_outlined, 'section', 'New Section', index),
             ],
@@ -758,272 +952,5 @@ class _CardColumnState extends State<CardColumn> {
         widget.onCardAdded(widget.selectedPage.id, type, initialContent, insertAt: index);
       },
     );
-  }
-}
-
-// --- Dynamic Real-Time Bottom Sheet Portal ---
-class _CommentsBottomSheetContent extends StatefulWidget {
-  final models.Card initialCard;
-  final ServerService serverService;
-  final Future<void> Function(String cardId, String content) onCardUpdated;
-
-  const _CommentsBottomSheetContent({
-    required this.initialCard,
-    required this.serverService,
-    required this.onCardUpdated,
-  });
-
-  @override
-  State<_CommentsBottomSheetContent> createState() => _CommentsBottomSheetContentState();
-}
-
-class _CommentsBottomSheetContentState extends State<_CommentsBottomSheetContent> {
-  final TextEditingController _textController = TextEditingController();
-  final Set<String> _submittingIds = {};
-  String? _localEditingCommentId;
-  late models.Card _card;
-
-  @override
-  void initState() {
-    super.initState();
-    _card = widget.initialCard;
-    widget.serverService.addListener(_onServerDataChanged);
-  }
-
-  @override
-  void dispose() {
-    widget.serverService.removeListener(_onServerDataChanged);
-    _textController.dispose();
-    super.dispose();
-  }
-
-  void _onServerDataChanged() async {
-    final freshCards = await widget.serverService.dbService.getCards(_card.pageId);
-    final updatedCard = freshCards.firstWhere((c) => c.id == _card.id, orElse: () => _card);
-    if (mounted) {
-      setState(() {
-        _card = updatedCard;
-      });
-    }
-  }
-
-  Future<void> _saveComment() async {
-    final text = _textController.text.trim();
-    if (text.isEmpty) return;
-
-    if (_submittingIds.contains(_card.id)) return;
-    _submittingIds.add(_card.id);
-
-    final comments = _card.commentsList;
-
-    if (_localEditingCommentId == null && comments.isNotEmpty) {
-      final lastComment = comments.first;
-      if (lastComment.text == text && DateTime.now().difference(lastComment.createdAt).inSeconds < 3) {
-        _submittingIds.remove(_card.id);
-        _textController.clear();
-        return;
-      }
-    }
-
-    final List<models.CommentItem> updatedComments = List.from(comments);
-    final String? commentToEditId = _localEditingCommentId;
-
-    if (commentToEditId != null) {
-      final idx = updatedComments.indexWhere((c) => c.id == commentToEditId);
-      if (idx != -1) {
-        updatedComments[idx] = updatedComments[idx].copyWith(text: text);
-      }
-    } else {
-      updatedComments.insert(0, models.CommentItem(
-        id: _generateId(),
-        text: text,
-        createdAt: DateTime.now(),
-      ));
-    }
-
-    _textController.clear();
-    setState(() {
-      _localEditingCommentId = null;
-    });
-
-    try {
-      final updatedCard = _card.copyWith(
-        comment: models.Card.commentsToJson(updatedComments),
-        updatedAt: DateTime.now(),
-        revision: _card.revision + 1,
-      );
-      await widget.serverService.dbService.updateCard(updatedCard);
-      await widget.onCardUpdated(_card.id, _card.content);
-    } finally {
-      _submittingIds.remove(_card.id);
-    }
-  }
-
-  void _deleteComment(String commentId) async {
-    final List<models.CommentItem> updatedComments = List.from(_card.commentsList);
-    updatedComments.removeWhere((c) => c.id == commentId);
-
-    final updatedCard = _card.copyWith(
-      comment: models.Card.commentsToJson(updatedComments),
-      updatedAt: DateTime.now(),
-      revision: _card.revision + 1,
-    );
-    await widget.serverService.dbService.updateCard(updatedCard);
-    await widget.onCardUpdated(_card.id, _card.content);
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final comments = _card.commentsList;
-
-    return Padding(
-      padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
-      child: Container(
-        height: MediaQuery.of(context).size.height * 0.55,
-        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Center(
-              child: Container(
-                width: 40,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: const Color(0xFF2E2E33),
-                  borderRadius: BorderRadius.circular(2),
-                ),
-              ),
-            ),
-            const SizedBox(height: 16),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Row(
-                  children: [
-                    const Icon(Icons.chat_bubble_outline, size: 18, color: Color(0xFF818CF8)),
-                    const SizedBox(width: 8),
-                    Text(
-                      'Comments (${comments.length})',
-                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: Colors.white),
-                    ),
-                  ],
-                ),
-                IconButton(
-                  icon: const Icon(Icons.close, size: 20, color: Color(0xFF71717A)),
-                  onPressed: () => Navigator.pop(context),
-                  padding: EdgeInsets.zero,
-                  constraints: const BoxConstraints(),
-                ),
-              ],
-            ),
-            const Divider(color: Color(0xFF242427), height: 24, thickness: 1),
-            Expanded(
-              child: comments.isEmpty
-                  ? const Center(
-                      child: Text(
-                        'No comments yet.\nWrite below to start a discussion.',
-                        textAlign: TextAlign.center,
-                        style: TextStyle(color: Color(0xFF52525B), fontSize: 12, height: 1.5),
-                      ),
-                    )
-                  : ListView.builder(
-                      itemCount: comments.length,
-                      padding: const EdgeInsets.symmetric(vertical: 4),
-                      itemBuilder: (context, index) {
-                        final comment = comments[index];
-                        return Container(
-                          margin: const EdgeInsets.only(bottom: 12),
-                          padding: const EdgeInsets.all(12),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFF1C1C1E),
-                            borderRadius: BorderRadius.circular(10),
-                            border: Border.all(color: const Color(0xFF2A2A2F)),
-                          ),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Row(
-                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                children: [
-                                  Text(
-                                    _formatDate(comment.createdAt),
-                                    style: const TextStyle(color: Color(0xFF71717A), fontSize: 10),
-                                  ),
-                                  Row(
-                                    children: [
-                                      GestureDetector(
-                                        onTap: () {
-                                          setState(() {
-                                            _localEditingCommentId = comment.id;
-                                            _textController.text = comment.text;
-                                          });
-                                        },
-                                        child: const Text('Edit', style: TextStyle(color: Color(0xFF818CF8), fontSize: 11, fontWeight: FontWeight.bold)),
-                                      ),
-                                      const SizedBox(width: 12),
-                                      GestureDetector(
-                                        onTap: () => _deleteComment(comment.id),
-                                        child: const Text('Delete', style: TextStyle(color: Color(0xFFF87171), fontSize: 11, fontWeight: FontWeight.bold)),
-                                      ),
-                                    ],
-                                  )
-                                ],
-                              ),
-                              const SizedBox(height: 8),
-                              Text(
-                                comment.text,
-                                style: const TextStyle(color: Color(0xFFE2E8F0), fontSize: 13, height: 1.4),
-                              ),
-                            ],
-                          ),
-                        );
-                      },
-                    ),
-            ),
-            const SizedBox(height: 12),
-            Row(
-              children: [
-                Expanded(
-                  child: TextField(
-                    controller: _textController,
-                    style: const TextStyle(fontSize: 13, color: Colors.white),
-                    decoration: InputDecoration(
-                      hintText: _localEditingCommentId != null ? 'Edit selected comment...' : 'Write comment...',
-                      hintStyle: const TextStyle(color: Color(0xFF52525B), fontSize: 13),
-                      isDense: true,
-                      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                      filled: true,
-                      fillColor: const Color(0xFF0F0F11),
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(10),
-                        borderSide: const BorderSide(color: Color(0xFF2A2A2F)),
-                      ),
-                      enabledBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(10),
-                        borderSide: const BorderSide(color: Color(0xFF2A2A2F)),
-                      ),
-                      focusedBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(10),
-                        borderSide: const BorderSide(color: Color(0xFF818CF8), width: 1.5),
-                      ),
-                    ),
-                    onSubmitted: (_) => _saveComment(),
-                  ),
-                ),
-                const SizedBox(width: 10),
-                IconButton(
-                  icon: const Icon(Icons.send_rounded, color: Color(0xFF818CF8), size: 22),
-                  onPressed: _saveComment,
-                ),
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  String _formatDate(DateTime date) {
-    return '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')} at ${date.hour.toString().padLeft(2, '0')}:${date.minute.toString().padLeft(2, '0')}';
   }
 }
