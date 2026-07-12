@@ -2,6 +2,7 @@
 import 'package:flutter/material.dart';
 import '../models/card_model.dart' as models;
 import 'immersive_code_editor.dart';
+import '../utils/markdown_utils.dart';
 
 class CodeCard extends StatefulWidget {
   final models.Card card;
@@ -215,7 +216,7 @@ class _CodeCardState extends State<CodeCard> {
               padding: const EdgeInsets.only(top: 8.0),
               child: RichText(
                 text: TextSpan(
-                  children: _highlight(_codeText, _lang),
+                  children: highlightCode(_codeText, _lang),
                   style: const TextStyle(
                     fontFamily: 'monospace',
                     fontSize: 12,
@@ -228,52 +229,5 @@ class _CodeCardState extends State<CodeCard> {
         ),
       ),
     );
-  }
-
-  List<TextSpan> _highlight(String code, String lang) {
-    if (code.isEmpty) {
-      return [
-        const TextSpan(
-          text: '// Empty code block... Double tap to edit.',
-          style: TextStyle(color: Color(0xFF64748B), fontStyle: FontStyle.italic),
-        )
-      ];
-    }
-    
-    final List<TextSpan> spans = [];
-    final keywords = {
-      'function', 'return', 'if', 'else', 'for', 'while', 'const', 'let', 'var',
-      'import', 'class', 'void', 'final', 'def', 'package', 'func', 'interface',
-      'fn', 'mut', 'match', 'impl', 'struct', 'enum', 'pub', 'use', 'mod', 'as', 'type'
-    };
-    
-    final regex = RegExp(
-      r'("(?:\\.|[^"\\])*"|\x27(?:\\.|[^\x27\\])*\x27)|(\/\/[^\n]*)|(\b\w+\b)|([^\w\x22\x27\/]+|\/)',
-      multiLine: true,
-    );
-    
-    final matches = regex.allMatches(code);
-    for (final match in matches) {
-      final str = match.group(1);
-      final comment = match.group(2);
-      final word = match.group(3);
-      final other = match.group(4);
-      
-      if (str != null) {
-        spans.add(TextSpan(text: str, style: const TextStyle(color: Color(0xFF34D399))));
-      } else if (comment != null) {
-        spans.add(TextSpan(text: comment, style: const TextStyle(color: Color(0xFF94A3B8), fontStyle: FontStyle.italic)));
-      } else if (word != null) {
-        if (keywords.contains(word)) {
-          spans.add(TextSpan(text: word, style: const TextStyle(color: Color(0xFFF472B6), fontWeight: FontWeight.bold)));
-        } else {
-          spans.add(TextSpan(text: word, style: const TextStyle(color: Color(0xFFE2E8F0))));
-        }
-      } else if (other != null) {
-        spans.add(TextSpan(text: other, style: const TextStyle(color: Color(0xFFCBD5E1))));
-      }
-    }
-    
-    return spans;
   }
 }

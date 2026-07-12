@@ -558,138 +558,141 @@ class _CardColumnState extends State<CardColumn> {
     final meta = CardMetadata.fromJsonString(card.comment);
     final activePreset = colorPresets[meta.color] ?? colorPresets['default']!;
 
-    return Container(
-      width: double.infinity,
-      margin: const EdgeInsets.symmetric(vertical: 4),
-      decoration: BoxDecoration(
-        color: activePreset.bg,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: activePreset.border),
-      ),
-      child: Theme(
-        data: ThemeData(
-          textTheme: TextTheme(
-            bodyMedium: TextStyle(color: activePreset.text),
-          ),
+    return GestureDetector(
+      onLongPress: () => _showBlockOptionsMenu(card, index),
+      child: Container(
+        width: double.infinity,
+        margin: const EdgeInsets.symmetric(vertical: 4),
+        decoration: BoxDecoration(
+          color: activePreset.bg,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: activePreset.border),
         ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-              child: Row(
-                children: [
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                    decoration: BoxDecoration(
-                      color: activePreset.textMuted.withOpacity(0.15),
-                      borderRadius: BorderRadius.circular(4),
-                    ),
-                    child: Text(
-                      '#${index + 1}',
-                      style: TextStyle(fontSize: 9, color: activePreset.text, fontWeight: FontWeight.bold),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      card.type.toUpperCase(),
-                      style: TextStyle(fontSize: 8.5, color: activePreset.textMuted, fontWeight: FontWeight.w800, letterSpacing: 0.5),
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
-                  if (card.type == 'markdown') ...[
-                    GestureDetector(
-                      onTap: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (context) => CommentsScreen(
-                              card: card,
-                              cardIndex: index + 1,
-                              serverService: widget.serverService,
-                              onCommentsUpdated: () {
-                                widget.onCardUpdated(card.id, card.content);
-                              },
-                            ),
-                          ),
-                        );
-                      },
-                      behavior: HitTestBehavior.opaque,
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 4),
-                        child: Stack(
-                          clipBehavior: Clip.none,
-                          children: [
-                            Icon(
-                              Icons.comment_outlined,
-                              size: 13,
-                              color: meta.comments.isNotEmpty
-                                  ? const Color(0xFF818CF8)
-                                  : activePreset.textMuted,
-                            ),
-                            if (meta.comments.isNotEmpty)
-                              Positioned(
-                                top: -6,
-                                right: -6,
-                                child: Container(
-                                  padding: const EdgeInsets.all(2),
-                                  decoration: const BoxDecoration(
-                                    color: Color(0xFF818CF8),
-                                    shape: BoxShape.circle,
-                                  ),
-                                  constraints: const BoxConstraints(
-                                    minWidth: 11,
-                                    minHeight: 11,
-                                  ),
-                                  child: Text(
-                                    '${meta.comments.length}',
-                                    style: const TextStyle(
-                                      color: Colors.white,
-                                      fontSize: 7,
-                                      fontWeight: FontWeight.bold,
-                                    ),
-                                    textAlign: TextAlign.center,
-                                  ),
-                                ),
-                              ),
-                          ],
-                        ),
+        child: Theme(
+          data: ThemeData(
+            textTheme: TextTheme(
+              bodyMedium: TextStyle(color: activePreset.text),
+            ),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                child: Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: activePreset.textMuted.withOpacity(0.15),
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: Text(
+                        '#${index + 1}',
+                        style: TextStyle(fontSize: 9, color: activePreset.text, fontWeight: FontWeight.bold),
                       ),
                     ),
-                    const SizedBox(width: 4),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        card.type.toUpperCase(),
+                        style: TextStyle(fontSize: 8.5, color: activePreset.textMuted, fontWeight: FontWeight.w800, letterSpacing: 0.5),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                    if (card.type == 'markdown') ...[
+                      GestureDetector(
+                        onTap: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) => CommentsScreen(
+                                card: card,
+                                cardIndex: index + 1,
+                                serverService: widget.serverService,
+                                onCommentsUpdated: () {
+                                  widget.onCardUpdated(card.id, card.content);
+                                },
+                              ),
+                            ),
+                          );
+                        },
+                        behavior: HitTestBehavior.opaque,
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 4),
+                          child: Stack(
+                            clipBehavior: Clip.none,
+                            children: [
+                              Icon(
+                                Icons.comment_outlined,
+                                size: 13,
+                                color: meta.comments.isNotEmpty
+                                    ? const Color(0xFF818CF8)
+                                    : activePreset.textMuted,
+                              ),
+                              if (meta.comments.isNotEmpty)
+                                Positioned(
+                                  top: -6,
+                                  right: -6,
+                                  child: Container(
+                                    padding: const EdgeInsets.all(2),
+                                    decoration: const BoxDecoration(
+                                      color: Color(0xFF818CF8),
+                                      shape: BoxShape.circle,
+                                    ),
+                                    constraints: const BoxConstraints(
+                                      minWidth: 11,
+                                      minHeight: 11,
+                                    ),
+                                    child: Text(
+                                      '${meta.comments.length}',
+                                      style: const TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 7,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                      textAlign: TextAlign.center,
+                                    ),
+                                  ),
+                                ),
+                            ],
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 4),
+                    ],
+                    SizedBox(width: 16, child: _buildColorPicker(card, meta, activePreset)),
+                    const SizedBox(width: 8),
+                    if (index > 0)
+                      _buildHeaderActionButton(
+                        icon: Icons.arrow_upward,
+                        color: activePreset.textMuted,
+                        size: 15,
+                        onPressed: () => _moveCard(index, -1),
+                      ),
+                    if (index > 0 && index < widget.cards.length - 1)
+                      const SizedBox(width: 4),
+                    if (index < widget.cards.length - 1)
+                      _buildHeaderActionButton(
+                        icon: Icons.arrow_downward,
+                        color: activePreset.textMuted,
+                        size: 15,
+                        onPressed: () => _moveCard(index, 1),
+                      ),
+                    const SizedBox(width: 16),
+                    _buildHeaderActionButton(
+                      icon: Icons.delete_outline,
+                      color: Colors.redAccent,
+                      size: 14,
+                      onPressed: () => widget.onCardDeleted(card.id),
+                    ),
                   ],
-                  SizedBox(width: 16, child: _buildColorPicker(card, meta, activePreset)),
-                  const SizedBox(width: 8),
-                  if (index > 0)
-                    _buildHeaderActionButton(
-                      icon: Icons.arrow_upward,
-                      color: activePreset.textMuted,
-                      size: 15,
-                      onPressed: () => _moveCard(index, -1),
-                    ),
-                  if (index > 0 && index < widget.cards.length - 1)
-                    const SizedBox(width: 4),
-                  if (index < widget.cards.length - 1)
-                    _buildHeaderActionButton(
-                      icon: Icons.arrow_downward,
-                      color: activePreset.textMuted,
-                      size: 15,
-                      onPressed: () => _moveCard(index, 1),
-                    ),
-                  const SizedBox(width: 16),
-                  _buildHeaderActionButton(
-                    icon: Icons.delete_outline,
-                    color: Colors.redAccent,
-                    size: 14,
-                    onPressed: () => widget.onCardDeleted(card.id),
-                  ),
-                ],
+                ),
               ),
-            ),
-            const Divider(height: 1, color: Color(0xFF2C2C2C)),
-            _buildCardContent(card),
-          ],
+              const Divider(height: 1, color: Color(0xFF2C2C2C)),
+              _buildCardContent(card),
+            ],
+          ),
         ),
       ),
     );
@@ -833,6 +836,7 @@ class _CardColumnState extends State<CardColumn> {
           textColor: activePreset.text,
           borderColor: activePreset.border,
           textMutedColor: activePreset.textMuted,
+          onLongPress: () => _showBlockOptionsMenu(card, index),
         );
       case 'code':
         return CodeCard(
@@ -857,6 +861,188 @@ class _CardColumnState extends State<CardColumn> {
           textMutedColor: activePreset.textMuted,
         );
     }
+  }
+
+  void _showBlockOptionsMenu(models.Card card, int index) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: const Color(0xFF202020),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (ctx) {
+        final meta = CardMetadata.fromJsonString(card.comment);
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 20),
+                child: Text(
+                  'Block #${index + 1} (${card.type.toUpperCase()}) Options',
+                  style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.grey, fontSize: 12),
+                ),
+              ),
+              ListTile(
+                leading: const Icon(Icons.drive_file_move_outlined, color: Color(0xFF818CF8)),
+                title: const Text('Move Block to another Page', style: TextStyle(color: Colors.white, fontSize: 14)),
+                subtitle: const Text('Move this card inside another page', style: TextStyle(color: Colors.grey, fontSize: 11)),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  _showMoveBlockDialog(card);
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.palette_outlined, color: Color(0xFF818CF8)),
+                title: const Text('Change Block Color', style: TextStyle(color: Colors.white, fontSize: 14)),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  _showColorPickerDialog(card, meta);
+                },
+              ),
+              if (card.type == 'markdown')
+                ListTile(
+                  leading: const Icon(Icons.comment_outlined, color: Color(0xFF818CF8)),
+                  title: const Text('Comments / Notes', style: TextStyle(color: Colors.white, fontSize: 14)),
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => CommentsScreen(
+                          card: card,
+                          cardIndex: index + 1,
+                          serverService: widget.serverService,
+                          onCommentsUpdated: () {
+                            widget.onCardUpdated(card.id, card.content);
+                          },
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ListTile(
+                leading: const Icon(Icons.delete_outline, color: Colors.redAccent),
+                title: const Text('Delete Block', style: TextStyle(color: Colors.redAccent, fontSize: 14)),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  widget.onCardDeleted(card.id);
+                },
+              ),
+              const SizedBox(height: 12),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  void _showColorPickerDialog(models.Card card, CardMetadata meta) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: const Color(0xFF202020),
+      builder: (context) => SafeArea(
+        child: ListView(
+          shrinkWrap: true,
+          children: colorPresets.entries.map((entry) {
+            return ListTile(
+              leading: Icon(Icons.circle, color: entry.value.textMuted),
+              title: Text(entry.value.label, style: const TextStyle(color: Colors.white)),
+              onTap: () async {
+                Navigator.pop(context);
+                final newMeta = CardMetadata(color: entry.key, comments: meta.comments);
+                await widget.serverService.updateCard(id: card.id, comment: newMeta.toJsonString());
+                await widget.onCardUpdated(card.id, card.content);
+              },
+            );
+          }).toList(),
+        ),
+      ),
+    );
+  }
+
+  void _showMoveBlockDialog(models.Card card) {
+    final allPages = widget.allPages;
+    final selectedPage = widget.selectedPage;
+
+    final subpages = allPages.where((p) => p.parentId == selectedPage.id && p.relationType != 'sidepage' && p.id != selectedPage.id).toList();
+    final neighbors = allPages.where((p) => p.parentId == selectedPage.parentId && p.id != selectedPage.id && p.relationType != 'sidepage').toList();
+    final excludedIds = {selectedPage.id, ...subpages.map((p) => p.id), ...neighbors.map((p) => p.id)};
+    final otherPages = allPages.where((p) => !excludedIds.contains(p.id) && p.relationType != 'sidepage').toList();
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF202020),
+        title: const Text('Move Block To...', style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Colors.white)),
+        content: SizedBox(
+          width: double.maxFinite,
+          height: 350,
+          child: ListView(
+            children: [
+              if (subpages.isNotEmpty) ...[
+                const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 8.0, horizontal: 4.0),
+                  child: Text('SUBPAGES / LINKS INSIDE THIS PAGE', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Color(0xFF818CF8))),
+                ),
+                ...subpages.map((page) => _buildPageMoveTile(ctx, card, page)),
+                const Divider(color: Color(0xFF2C2C2C)),
+              ],
+              if (neighbors.isNotEmpty) ...[
+                const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 8.0, horizontal: 4.0),
+                  child: Text('NEIGHBOR PAGES', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.grey)),
+                ),
+                ...neighbors.map((page) => _buildPageMoveTile(ctx, card, page)),
+                const Divider(color: Color(0xFF2C2C2C)),
+              ],
+              if (otherPages.isNotEmpty) ...[
+                const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 8.0, horizontal: 4.0),
+                  child: Text('OTHER PAGES', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.grey)),
+                ),
+                ...otherPages.map((page) => _buildPageMoveTile(ctx, card, page)),
+              ],
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel', style: TextStyle(color: Colors.grey)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPageMoveTile(BuildContext dialogCtx, models.Card card, DbPage page) {
+    return ListTile(
+      dense: true,
+      leading: PageIcon(
+        emoji: page.emoji,
+        size: 16,
+        dbService: widget.dbService,
+      ),
+      title: Text(
+        page.title.isEmpty ? 'Untitled' : page.title,
+        style: const TextStyle(fontSize: 13, color: Colors.white),
+      ),
+      onTap: () async {
+        Navigator.pop(dialogCtx);
+        await widget.serverService.updateCard(
+          id: card.id,
+          pageId: page.id,
+        );
+        await widget.onCardUpdated(card.id, card.content);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Moved block to "${page.title.isEmpty ? 'Untitled' : page.title}"')),
+          );
+        }
+      },
+    );
   }
 
   void _showAddCardMenu(int index) {

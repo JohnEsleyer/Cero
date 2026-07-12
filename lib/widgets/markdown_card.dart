@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:gpt_markdown/gpt_markdown.dart';
 import '../models/card_model.dart' as models;
 import 'immersive_markdown_editor.dart';
+import '../utils/markdown_utils.dart';
 
 class MarkdownCard extends StatefulWidget {
   final models.Card card;
@@ -95,6 +96,14 @@ class _MarkdownCardState extends State<MarkdownCard> {
         padding: const EdgeInsets.all(12),
         child: Theme(
           data: Theme.of(context).copyWith(
+            cardColor: const Color(0xFF151515),
+            canvasColor: const Color(0xFF151515),
+            colorScheme: Theme.of(context).colorScheme.copyWith(
+              surface: const Color(0xFF151515),
+              surfaceVariant: const Color(0xFF151515),
+              onSurface: resolvedText,
+              onSurfaceVariant: resolvedText,
+            ),
             textTheme: Theme.of(context).textTheme.copyWith(
               headlineLarge: TextStyle(color: resolvedText),
               headlineMedium: TextStyle(color: resolvedText),
@@ -108,12 +117,37 @@ class _MarkdownCardState extends State<MarkdownCard> {
             ),
           ),
           child: GptMarkdown(
-            content,
+            formatMath(content),
             style: TextStyle(
               fontSize: 14,
               height: 1.6,
               color: resolvedText,
             ),
+            codeBuilder: (context, name, code, closed) {
+              return Container(
+                margin: const EdgeInsets.symmetric(vertical: 8),
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF131313),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: const Color(0xFF2C2C2C)),
+                ),
+                width: double.infinity,
+                child: SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: RichText(
+                    text: TextSpan(
+                      children: highlightCode(code, name),
+                      style: const TextStyle(
+                        fontFamily: 'monospace',
+                        fontSize: 12,
+                        height: 1.5,
+                      ),
+                    ),
+                  ),
+                ),
+              );
+            },
           ),
         ),
       ),

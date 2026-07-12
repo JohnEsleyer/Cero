@@ -664,13 +664,14 @@ class ServerService extends ChangeNotifier {
             if (cardId.isNotEmpty) {
               final existingCard = await _dbService.getCard(cardId);
               if (existingCard != null) {
+                final oldPageId = existingCard.pageId;
                 final mergedMap = existingCard.toMap();
                 itemMap.forEach((key, value) {
                   if (value != null) mergedMap[key] = value;
                 });
                 mergedMap['updated_at'] = DateTime.now().toIso8601String();
                 final card = Card.fromMap(mergedMap);
-                await _updateCard(card, fromRemote: true);
+                await _updateCard(card, fromRemote: true, oldPageId: oldPageId);
               }
             }
           }
@@ -1088,11 +1089,13 @@ class ServerService extends ChangeNotifier {
     required String id,
     String? content,
     String? comment,
+    String? pageId,
   }) async {
     if (_isClientMode && _isClientPaired) {
       final Map<String, dynamic> updateItem = {'id': id};
       if (content != null) updateItem['content'] = content;
       if (comment != null) updateItem['comment'] = comment;
+      if (pageId != null) updateItem['page_id'] = pageId;
       final payload = jsonEncode({
         'type': 'update_card',
         'item': updateItem,
@@ -1104,20 +1107,26 @@ class ServerService extends ChangeNotifier {
     final card = await _dbService.getCard(id);
     if (card == null) return;
 
+    final oldPageId = card.pageId;
+
     final updated = card.copyWith(
       content: content ?? card.content,
       comment: comment ?? card.comment,
+      pageId: pageId ?? card.pageId,
       updatedAt: DateTime.now(),
       revision: card.revision + 1,
     );
-    await _updateCard(updated, fromRemote: false);
+    await _updateCard(updated, fromRemote: false, oldPageId: oldPageId);
   }
 
-  Future<void> _updateCard(Card card, {required bool fromRemote}) async {
+  Future<void> _updateCard(Card card, {required bool fromRemote, String? oldPageId}) async {
     try {
       await _dbService.updateCard(card);
 
       await _broadcastCardsToAllClients(card.pageId);
+      if (oldPageId != null && oldPageId != card.pageId) {
+        await _broadcastCardsToAllClients(oldPageId);
+      }
       notifyListeners();
     } catch (e) {
       debugPrint('Error updating card: $e');

@@ -13,6 +13,7 @@ class SubpageLinkCard extends StatelessWidget {
   final Future<DbPage?> Function(String parentId)? onCreateNewPage;
   final int cardIndex;
   final DatabaseService? dbService;
+  final VoidCallback? onLongPress;
 
   final Color? textColor;
   final Color? borderColor;
@@ -31,6 +32,7 @@ class SubpageLinkCard extends StatelessWidget {
     this.textColor,
     this.borderColor,
     this.textMutedColor,
+    this.onLongPress,
   });
 
   @override
@@ -87,6 +89,7 @@ class SubpageLinkCard extends StatelessWidget {
                 color: Colors.transparent,
                 child: InkWell(
                   onTap: targetPage != null ? () => onNavigate(targetPage) : () => _showSelectPageDialog(context),
+                  onLongPress: onLongPress,
                   child: Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 12),
                     child: Row(

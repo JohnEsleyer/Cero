@@ -3,6 +3,7 @@ import 'package:gpt_markdown/gpt_markdown.dart';
 import '../models/card_model.dart' as models;
 import '../services/server_service.dart';
 import '../widgets/card_column.dart';
+import '../utils/markdown_utils.dart';
 
 class CommentsScreen extends StatefulWidget {
   final models.Card card;
@@ -142,11 +143,48 @@ class _CommentsScreenState extends State<CommentsScreen> {
                     border: Border.all(color: const Color(0xFF2C2C2C)),
                   ),
                   child: SingleChildScrollView(
-                    child: GptMarkdown(
-                      _currentCard.content.trim().isEmpty
-                          ? '*Empty markdown card*'
-                          : _currentCard.content,
-                      style: const TextStyle(fontSize: 12, height: 1.5, color: Color(0xFFCBD5E1)),
+                    child: Theme(
+                      data: Theme.of(context).copyWith(
+                        cardColor: const Color(0xFF131313),
+                        canvasColor: const Color(0xFF131313),
+                        colorScheme: Theme.of(context).colorScheme.copyWith(
+                          surface: const Color(0xFF131313),
+                          surfaceVariant: const Color(0xFF131313),
+                          onSurface: const Color(0xFFCBD5E1),
+                          onSurfaceVariant: const Color(0xFFCBD5E1),
+                        ),
+                      ),
+                      child: GptMarkdown(
+                        formatMath(_currentCard.content.trim().isEmpty
+                            ? '*Empty markdown card*'
+                            : _currentCard.content),
+                        style: const TextStyle(fontSize: 12, height: 1.5, color: Color(0xFFCBD5E1)),
+                        codeBuilder: (context, name, code, closed) {
+                          return Container(
+                            margin: const EdgeInsets.symmetric(vertical: 4),
+                            padding: const EdgeInsets.all(8),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF131313),
+                              borderRadius: BorderRadius.circular(6),
+                              border: Border.all(color: const Color(0xFF2C2C2C)),
+                            ),
+                            width: double.infinity,
+                            child: SingleChildScrollView(
+                              scrollDirection: Axis.horizontal,
+                              child: RichText(
+                                text: TextSpan(
+                                  children: highlightCode(code, name),
+                                  style: const TextStyle(
+                                    fontFamily: 'monospace',
+                                    fontSize: 11,
+                                    height: 1.4,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          );
+                        },
+                      ),
                     ),
                   ),
                 ),
