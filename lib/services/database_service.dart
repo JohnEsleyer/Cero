@@ -118,6 +118,19 @@ class DatabaseService {
     );
 
     await _migrateLegacyData(db);
+
+    // GUARANTEE GLOBAL SCRATCHPAD RECORDS EXIST
+    final now = DateTime.now().toIso8601String();
+    await db.execute('''
+      INSERT OR IGNORE INTO pages (id, parent_id, relation_type, title, emoji, created_at, updated_at, is_archived, sort_order, revision)
+      VALUES ('global-scratchpad', NULL, 'scratchpad', 'Global Scratchpad', '', ?, ?, 0, 0, 0)
+    ''', [now, now]);
+
+    await db.execute('''
+      INSERT OR IGNORE INTO cards (id, page_id, type, content, comment, sort_order, created_at, updated_at, revision)
+      VALUES ('global-scratchpad-card', 'global-scratchpad', 'markdown', '', '', 0, ?, ?, 0)
+    ''', [now, now]);
+
     return db;
   }
 

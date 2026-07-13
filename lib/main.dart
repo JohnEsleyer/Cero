@@ -2,6 +2,8 @@ import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:gpt_markdown/gpt_markdown.dart';
 import 'services/server_service.dart';
 import 'models/page_model.dart';
 import 'models/card_model.dart' as models;
@@ -75,14 +77,23 @@ class _MainJournalScreenState extends State<MainJournalScreen> {
   bool _isClientModeTab = false;
   String _sidebarSearchQuery = '';
 
+  bool _showScratchpad = false;
+  final TextEditingController _scratchpadController = TextEditingController();
+  final FocusNode _scratchpadFocusNode = FocusNode();
+  bool _scratchpadPreviewMode = false;
+  Timer? _scratchpadSaveTimer;
+  double _scratchpadWidth = 320.0;
+  double _scratchpadHeight = 240.0;
+  bool _scratchpadHorizontalLayout = false; // true = side-by-side, false = stacked vertically
+
   @override
   void initState() {
     super.initState();
     _serverService = widget.serverService;
     _serverService.addListener(_onServerStateChanged);
+    _loadScratchpad();
+    _scratchpadController.addListener(_saveScratchpadDebounced);
   }
-
-
 
   @override
   void dispose() {
@@ -92,6 +103,9 @@ class _MainJournalScreenState extends State<MainJournalScreen> {
     _saveDebounceTimer?.cancel();
     _clientIpController.dispose();
     _clientPinController.dispose();
+    _scratchpadSaveTimer?.cancel();
+    _scratchpadController.dispose();
+    _scratchpadFocusNode.dispose();
     super.dispose();
   }
 
@@ -118,8 +132,51 @@ class _MainJournalScreenState extends State<MainJournalScreen> {
         }
 
         _checkPendingConnections();
+        _syncRemoteScratchpad();
       });
     }
+  }
+
+  Future<void> _loadScratchpad() async {
+    try {
+      final cards = await _serverService.getCards('global-scratchpad');
+      if (cards.isNotEmpty) {
+        _scratchpadController.text = cards.first.content;
+      }
+    } catch (e) {
+      debugPrint('Error loading scratchpad: $e');
+    }
+  }
+
+  Future<void> _saveScratchpad() async {
+    try {
+      await _serverService.updateCard(
+        id: 'global-scratchpad-card',
+        pageId: 'global-scratchpad',
+        content: _scratchpadController.text,
+      );
+    } catch (e) {
+      debugPrint('Error saving scratchpad: $e');
+    }
+  }
+
+  void _saveScratchpadDebounced() {
+    _scratchpadSaveTimer?.cancel();
+    _scratchpadSaveTimer = Timer(const Duration(milliseconds: 400), () {
+      _saveScratchpad();
+    });
+  }
+
+  Future<void> _syncRemoteScratchpad() async {
+    try {
+      final cards = await _serverService.getCards('global-scratchpad');
+      if (cards.isNotEmpty) {
+        final remoteContent = cards.first.content;
+        if (!_scratchpadFocusNode.hasFocus && _scratchpadController.text != remoteContent) {
+          _scratchpadController.text = remoteContent;
+        }
+      }
+    } catch (_) {}
   }
 
   Future<void> _loadCardsForPage(String pageId) async {
@@ -748,7 +805,7 @@ class _MainJournalScreenState extends State<MainJournalScreen> {
   Widget build(BuildContext context) {
     final allPages = _serverService.pages;
     final rootPages = allPages
-        .where((p) => p.parentId == null && p.relationType != 'sidepage')
+        .where((p) => p.parentId == null && p.relationType != 'sidepage' && p.relationType != 'scratchpad')
         .toList();
 
     return PopScope(
@@ -772,6 +829,18 @@ class _MainJournalScreenState extends State<MainJournalScreen> {
         elevation: 0,
         actions: [
           if (_selectedPage != null) ...[
+            IconButton(
+              icon: Icon(
+                _showScratchpad ? Icons.note_alt : Icons.note_alt_outlined,
+                color: _showScratchpad ? const Color(0xFF818CF8) : null,
+              ),
+              tooltip: 'Toggle Scratchpad',
+              onPressed: () {
+                setState(() {
+                  _showScratchpad = !_showScratchpad;
+                });
+              },
+            ),
             IconButton(
               icon: _isRefreshingPage
                   ? const SizedBox(
@@ -889,6 +958,33 @@ class _MainJournalScreenState extends State<MainJournalScreen> {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             _buildDrawerHeader(),
+            
+            // DEDICATED SCRATCHPAD TRIGGER BUTTON
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              child: OutlinedButton.icon(
+                onPressed: () {
+                  Navigator.pop(context); // Close the side drawer
+                  setState(() {
+                    _showScratchpad = !_showScratchpad;
+                  });
+                },
+                icon: const Icon(Icons.note_alt_outlined, size: 16, color: Color(0xFF818CF8)),
+                label: Text(
+                  _showScratchpad ? 'Close Scratchpad' : 'Open Scratchpad',
+                  style: const TextStyle(color: Color(0xFFCBD5E1), fontSize: 12),
+                ),
+                style: OutlinedButton.styleFrom(
+                  backgroundColor: _showScratchpad ? const Color(0xFF818CF8).withOpacity(0.08) : Colors.transparent,
+                  side: BorderSide(color: _showScratchpad ? const Color(0xFF818CF8) : const Color(0xFF2C2C2C)),
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                ),
+              ),
+            ),
+
             if (!_showArchived)
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
@@ -1801,10 +1897,144 @@ class _MainJournalScreenState extends State<MainJournalScreen> {
     );
   }
 
+  Widget _buildScratchpadPane() {
+    return Container(
+      color: const Color(0xFF131313),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            decoration: const BoxDecoration(
+              color: Color(0xFF1E1E1E),
+              border: Border(bottom: BorderSide(color: Color(0xFF2C2C2C))),
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text(
+                  '📝 SCRATCHPAD',
+                  style: TextStyle(
+                    fontSize: 10,
+                    fontWeight: FontWeight.bold,
+                    color: Color(0xFF818CF8),
+                    letterSpacing: 0.5,
+                  ),
+                ),
+                Row(
+                  children: [
+                    // DOCK LAYOUT SWITCHER
+                    IconButton(
+                      icon: Icon(
+                        _scratchpadHorizontalLayout ? Icons.border_bottom_outlined : Icons.border_left_outlined,
+                        size: 14,
+                        color: Colors.grey,
+                      ),
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(),
+                      tooltip: 'Toggle Dock Position (Side / Bottom)',
+                      onPressed: () {
+                        setState(() {
+                          _scratchpadHorizontalLayout = !_scratchpadHorizontalLayout;
+                        });
+                      },
+                    ),
+                    const SizedBox(width: 8),
+                    TextButton(
+                      style: TextButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                        minimumSize: Size.zero,
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      ),
+                      onPressed: () {
+                        setState(() {
+                          _scratchpadPreviewMode = false;
+                        });
+                      },
+                      child: Text(
+                        'Write',
+                        style: TextStyle(
+                          fontSize: 9,
+                          fontWeight: FontWeight.bold,
+                          color: !_scratchpadPreviewMode ? const Color(0xFF818CF8) : Colors.grey,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 4),
+                    TextButton(
+                      style: TextButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                        minimumSize: Size.zero,
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      ),
+                      onPressed: () {
+                        setState(() {
+                          _scratchpadPreviewMode = true;
+                        });
+                      },
+                      child: Text(
+                        'Preview',
+                        style: TextStyle(
+                          fontSize: 9,
+                          fontWeight: FontWeight.bold,
+                          color: _scratchpadPreviewMode ? const Color(0xFF818CF8) : Colors.grey,
+                        ),
+                      ),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.close, size: 14),
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(),
+                      onPressed: () {
+                        setState(() {
+                          _showScratchpad = false;
+                        });
+                      },
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          Expanded(
+            child: _scratchpadPreviewMode
+                ? SingleChildScrollView(
+                    padding: const EdgeInsets.all(12),
+                    child: _scratchpadController.text.trim().isEmpty
+                        ? const Center(
+                            child: Text(
+                              'No content to preview. Type something in the Write tab!',
+                              style: TextStyle(fontSize: 11, fontStyle: FontStyle.italic, color: Colors.grey),
+                              textAlign: TextAlign.center,
+                            ),
+                          )
+                        : GptMarkdown(
+                            _scratchpadController.text,
+                            style: const TextStyle(fontSize: 13, height: 1.5, color: Color(0xFFCBD5E1)),
+                          ),
+                  )
+                : TextField(
+                    controller: _scratchpadController,
+                    focusNode: _scratchpadFocusNode,
+                    maxLines: null,
+                    style: const TextStyle(fontSize: 12, height: 1.5, color: Colors.white, fontFamily: 'monospace'),
+                    decoration: const InputDecoration(
+                      hintText: 'Take quick notes here while reading...',
+                      hintStyle: TextStyle(fontSize: 12, color: Colors.grey),
+                      border: InputBorder.none,
+                      contentPadding: EdgeInsets.all(12),
+                    ),
+                  ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildPageEditor() {
     if (_selectedPage == null) return const SizedBox();
 
-    return Column(
+    Widget mainEditor = Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         const Focus(autofocus: true, child: SizedBox.shrink()),
@@ -1847,49 +2077,119 @@ class _MainJournalScreenState extends State<MainJournalScreen> {
             ],
           ),
         ),
-          Expanded(
-            child: CardColumn(
-              cards: _pageCards,
-              allPages: _serverService.pages,
-              selectedPage: _selectedPage!,
-              scrollController: _cardScrollController,
-              dbService: _serverService.dbService,
-              serverService: _serverService,
-              onNavigateToPage: _selectPage,
-              onCardUpdated: (cardId, content) async {
-                await _serverService.updateCard(id: cardId, content: content);
-                _loadCardsForPage(_selectedPage!.id);
-              },
-              onCardAdded: (pageId, type, content, {insertAt}) async {
-                await _serverService.addCard(
-                  pageId: pageId,
-                  type: type,
-                  content: content,
-                  insertAt: insertAt,
-                );
-                _loadCardsForPage(pageId);
-                WidgetsBinding.instance.addPostFrameCallback((_) {
-                  if (_cardScrollController.hasClients) {
-                    _cardScrollController.jumpTo(
-                      _cardScrollController.position.maxScrollExtent,
-                    );
-                  }
-                });
-              },
-              onCardDeleted: (cardId) async {
-                await _serverService.deleteCard(cardId);
-                _loadCardsForPage(_selectedPage!.id);
-              },
-              onCardsReordered: (cardIds) async {
-                await _serverService.reorderCards(cardIds: cardIds);
-                _loadCardsForPage(_selectedPage!.id);
-              },
-              onCreateNewPage: (parentId) async {
-                return await _createSubpage(parentId);
-              },
-            ),
+        Expanded(
+          child: CardColumn(
+            cards: _pageCards,
+            allPages: _serverService.pages,
+            selectedPage: _selectedPage!,
+            scrollController: _cardScrollController,
+            dbService: _serverService.dbService,
+            serverService: _serverService,
+            onNavigateToPage: _selectPage,
+            onCardUpdated: (cardId, content) async {
+              await _serverService.updateCard(id: cardId, content: content);
+              _loadCardsForPage(_selectedPage!.id);
+            },
+            onCardAdded: (pageId, type, content, {insertAt}) async {
+              await _serverService.addCard(
+                pageId: pageId,
+                type: type,
+                content: content,
+                insertAt: insertAt,
+              );
+              _loadCardsForPage(pageId);
+              WidgetsBinding.instance.addPostFrameCallback((_) {
+                if (_cardScrollController.hasClients) {
+                  _cardScrollController.jumpTo(
+                    _cardScrollController.position.maxScrollExtent,
+                  );
+                }
+              });
+            },
+            onCardDeleted: (cardId) async {
+              await _serverService.deleteCard(cardId);
+              _loadCardsForPage(_selectedPage!.id);
+            },
+            onCardsReordered: (cardIds) async {
+              await _serverService.reorderCards(cardIds: cardIds);
+              _loadCardsForPage(_selectedPage!.id);
+            },
+            onCreateNewPage: (parentId) async {
+              return await _createSubpage(parentId);
+            },
           ),
+        ),
       ],
     );
+
+    if (_showScratchpad) {
+      if (_scratchpadHorizontalLayout) {
+        // SIDE-BY-SIDE PANEL WITH ADJUSTABLE WIDTH
+        return Row(
+          children: [
+            Expanded(child: mainEditor),
+            GestureDetector(
+              behavior: HitTestBehavior.translucent,
+              onHorizontalDragUpdate: (details) {
+                setState(() {
+                  _scratchpadWidth = (_scratchpadWidth - details.delta.dx).clamp(200.0, 600.0);
+                });
+              },
+              child: Container(
+                width: 6,
+                color: Colors.transparent,
+                child: Center(
+                  child: Container(width: 1, color: const Color(0xFF2C2C2C)),
+                ),
+              ),
+            ),
+            SizedBox(
+              width: _scratchpadWidth,
+              child: _buildScratchpadPane(),
+            ),
+          ],
+        );
+      } else {
+        // TOP-AND-BOTTOM STACKED PANEL WITH VERTICAL HEIGHT ADJUSTMENT
+        return Column(
+          children: [
+            Expanded(child: mainEditor),
+            GestureDetector(
+              behavior: HitTestBehavior.translucent,
+              onVerticalDragUpdate: (details) {
+                setState(() {
+                  _scratchpadHeight = (_scratchpadHeight - details.delta.dy).clamp(120.0, 500.0);
+                });
+              },
+              child: Container(
+                height: 12,
+                color: Colors.transparent,
+                child: Stack(
+                  alignment: Alignment.center,
+                  children: [
+                    Container(height: 1, color: const Color(0xFF2C2C2C)),
+                    Container(
+                      width: 40,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF202020),
+                        borderRadius: BorderRadius.circular(2),
+                        border: Border.all(color: const Color(0xFF3E3E3E)),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            SizedBox(
+              height: _scratchpadHeight,
+              child: _buildScratchpadPane(),
+            ),
+          ],
+        );
+      }
+    }
+
+    return mainEditor;
   }
 }
