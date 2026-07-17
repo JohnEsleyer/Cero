@@ -86,13 +86,47 @@ class _MainJournalScreenState extends State<MainJournalScreen> {
   double _scratchpadHeight = 240.0;
   bool _scratchpadHorizontalLayout = false; // true = side-by-side, false = stacked vertically
 
+  List<String> _recentlyOpenedRootPageIds = [];
+
   @override
   void initState() {
     super.initState();
     _serverService = widget.serverService;
     _serverService.addListener(_onServerStateChanged);
     _loadScratchpad();
+    _loadRecentlyOpened();
     _scratchpadController.addListener(_saveScratchpadDebounced);
+  }
+
+  Future<void> _loadRecentlyOpened() async {
+    try {
+      final directory = await getApplicationDocumentsDirectory();
+      final file = File('${directory.path}/recently_opened_root_pages.txt');
+      if (await file.exists()) {
+        final content = await file.readAsString();
+        if (mounted) {
+          setState(() {
+            _recentlyOpenedRootPageIds = content
+                .split('\n')
+                .map((s) => s.trim())
+                .where((s) => s.isNotEmpty)
+                .toList();
+          });
+        }
+      }
+    } catch (e) {
+      debugPrint('Error loading recently opened root pages: $e');
+    }
+  }
+
+  Future<void> _saveRecentlyOpened() async {
+    try {
+      final directory = await getApplicationDocumentsDirectory();
+      final file = File('${directory.path}/recently_opened_root_pages.txt');
+      await file.writeAsString(_recentlyOpenedRootPageIds.join('\n'));
+    } catch (e) {
+      debugPrint('Error saving recently opened root pages: $e');
+    }
   }
 
   @override
@@ -316,6 +350,15 @@ class _MainJournalScreenState extends State<MainJournalScreen> {
         _selectedPage!.id != page.id) {
       _navigationHistory.add(_selectedPage!.id);
     }
+
+    if (page.parentId == null && page.relationType != 'sidepage' && page.relationType != 'scratchpad') {
+      setState(() {
+        _recentlyOpenedRootPageIds.remove(page.id);
+        _recentlyOpenedRootPageIds.insert(0, page.id);
+      });
+      _saveRecentlyOpened();
+    }
+
     setState(() {
       _selectedPage = page;
       _titleController.text = page.title;
@@ -807,6 +850,15 @@ class _MainJournalScreenState extends State<MainJournalScreen> {
     final rootPages = allPages
         .where((p) => p.parentId == null && p.relationType != 'sidepage' && p.relationType != 'scratchpad')
         .toList();
+
+    rootPages.sort((a, b) {
+      final idxA = _recentlyOpenedRootPageIds.indexOf(a.id);
+      final idxB = _recentlyOpenedRootPageIds.indexOf(b.id);
+      if (idxA == -1 && idxB == -1) return 0;
+      if (idxA == -1) return 1;
+      if (idxB == -1) return -1;
+      return idxA.compareTo(idxB);
+    });
 
     return PopScope(
       canPop: _navigationHistory.isEmpty,
