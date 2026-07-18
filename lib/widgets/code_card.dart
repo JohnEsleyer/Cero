@@ -82,6 +82,56 @@ class _CodeCardState extends State<CodeCard> {
     );
   }
 
+  void _openCodeReadingView() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => Scaffold(
+          backgroundColor: const Color(0xFF0A0A0A),
+          appBar: AppBar(
+            backgroundColor: const Color(0xFF1A1A1A),
+            elevation: 0,
+            title: Text(
+              _lang.toUpperCase(),
+              style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Color(0xFF818CF8)),
+            ),
+            leading: IconButton(
+              icon: const Icon(Icons.arrow_back, color: Colors.white),
+              onPressed: () => Navigator.pop(context),
+            ),
+          ),
+          body: SafeArea(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(20),
+              child: SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: Container(
+                  constraints: BoxConstraints(minWidth: MediaQuery.of(context).size.width - 40),
+                  padding: const EdgeInsets.all(20),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF111111),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: const Color(0xFF2C2C2C)),
+                  ),
+                  child: RichText(
+                    text: TextSpan(
+                      children: highlightCode(_codeText, _lang),
+                      style: const TextStyle(
+                        fontFamily: 'monospace',
+                        fontSize: 14,
+                        height: 1.6,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Card(
@@ -187,7 +237,7 @@ class _CodeCardState extends State<CodeCard> {
 
   Widget _buildPreview() {
     return InkWell(
-      onDoubleTap: _openImmersiveEditor,
+      onTap: _openCodeReadingView,
       child: Container(
         width: double.infinity,
         padding: const EdgeInsets.all(14),

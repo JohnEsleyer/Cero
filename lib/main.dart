@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
@@ -84,7 +85,12 @@ class _MainJournalScreenState extends State<MainJournalScreen> {
   Timer? _scratchpadSaveTimer;
   double _scratchpadWidth = 320.0;
   double _scratchpadHeight = 240.0;
-  bool _scratchpadHorizontalLayout = false; // true = side-by-side, false = stacked vertically
+  bool _scratchpadHorizontalLayout = false;
+
+  bool _showTally = false;
+  final TextEditingController _newTallyNameController = TextEditingController();
+  final ScrollController _tallyScrollController = ScrollController();
+  List<models.Card> _tallyCards = [];
 
   List<String> _recentlyOpenedRootPageIds = [];
 
@@ -94,6 +100,7 @@ class _MainJournalScreenState extends State<MainJournalScreen> {
     _serverService = widget.serverService;
     _serverService.addListener(_onServerStateChanged);
     _loadScratchpad();
+    _loadTally();
     _loadRecentlyOpened();
     _scratchpadController.addListener(_saveScratchpadDebounced);
   }
@@ -140,6 +147,8 @@ class _MainJournalScreenState extends State<MainJournalScreen> {
     _scratchpadSaveTimer?.cancel();
     _scratchpadController.dispose();
     _scratchpadFocusNode.dispose();
+    _newTallyNameController.dispose();
+    _tallyScrollController.dispose();
     super.dispose();
   }
 
@@ -167,6 +176,7 @@ class _MainJournalScreenState extends State<MainJournalScreen> {
 
         _checkPendingConnections();
         _syncRemoteScratchpad();
+        _syncRemoteTally();
       });
     }
   }
@@ -211,6 +221,234 @@ class _MainJournalScreenState extends State<MainJournalScreen> {
         }
       }
     } catch (_) {}
+  }
+
+  Future<void> _loadTally() async {
+    try {
+      final cards = await _serverService.getCards('global-tally');
+      if (mounted) {
+        setState(() {
+          _tallyCards = cards;
+        });
+      }
+    } catch (e) {
+      debugPrint('Error loading tallies: $e');
+    }
+  }
+
+  Future<void> _syncRemoteTally() async {
+    try {
+      final cards = await _serverService.getCards('global-tally');
+      if (mounted) {
+        setState(() {
+          _tallyCards = cards;
+        });
+      }
+    } catch (_) {}
+  }
+
+  Widget _buildTallyPane() {
+    return Container(
+      color: const Color(0xFF131313),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            decoration: const BoxDecoration(
+              color: Color(0xFF1E1E1E),
+              border: Border(bottom: BorderSide(color: Color(0xFF2C2C2C))),
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text(
+                  '🔢 TALLIES',
+                  style: TextStyle(
+                    fontSize: 10,
+                    fontWeight: FontWeight.bold,
+                    color: Color(0xFF818CF8),
+                    letterSpacing: 0.5,
+                  ),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.close, size: 14),
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(),
+                  onPressed: () {
+                    setState(() {
+                      _showTally = false;
+                    });
+                  },
+                ),
+              ],
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.all(8.0),
+            child: Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _newTallyNameController,
+                    style: const TextStyle(fontSize: 12, color: Colors.white),
+                    decoration: const InputDecoration(
+                      hintText: 'New Tally Name...',
+                      hintStyle: TextStyle(fontSize: 12, color: Colors.grey),
+                      isDense: true,
+                      contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                      filled: true,
+                      fillColor: Color(0xFF191919),
+                      border: OutlineInputBorder(
+                        borderSide: BorderSide(color: Color(0xFF2C2C2C)),
+                        borderRadius: BorderRadius.all(Radius.circular(6)),
+                      ),
+                      enabledBorder: OutlineInputBorder(
+                        borderSide: BorderSide(color: Color(0xFF2C2C2C)),
+                        borderRadius: BorderRadius.all(Radius.circular(6)),
+                      ),
+                      focusedBorder: OutlineInputBorder(
+                        borderSide: BorderSide(color: Color(0xFF818CF8)),
+                        borderRadius: BorderRadius.all(Radius.circular(6)),
+                      ),
+                    ),
+                    onSubmitted: (val) => _addTallyItem(),
+                  ),
+                ),
+                const SizedBox(width: 6),
+                IconButton(
+                  icon: const Icon(Icons.add_circle, color: Color(0xFF818CF8), size: 24),
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(),
+                  onPressed: _addTallyItem,
+                ),
+              ],
+            ),
+          ),
+          Expanded(
+            child: _tallyCards.isEmpty
+                ? const Center(
+                    child: Text(
+                      'No tallies yet. Add one above!',
+                      style: TextStyle(fontSize: 12, color: Colors.grey, fontStyle: FontStyle.italic),
+                    ),
+                  )
+                : ListView.builder(
+                    controller: _tallyScrollController,
+                    itemCount: _tallyCards.length,
+                    itemBuilder: (context, idx) {
+                      final card = _tallyCards[idx];
+                      String name = 'Tally';
+                      int count = 0;
+                      try {
+                        final decoded = jsonDecode(card.content) as Map<String, dynamic>;
+                        name = decoded['name'] ?? 'Tally';
+                        count = decoded['count'] ?? 0;
+                      } catch (_) {
+                        name = card.comment.isEmpty ? 'Tally' : card.comment;
+                        count = int.tryParse(card.content) ?? 0;
+                      }
+
+                      return Card(
+                        color: const Color(0xFF1E1E1E),
+                        margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(8),
+                          side: const BorderSide(color: Color(0xFF2C2C2C)),
+                        ),
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                          child: Row(
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  name,
+                                  style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Colors.white),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                              Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  IconButton(
+                                    icon: const Icon(Icons.remove_circle_outline, size: 20, color: Colors.redAccent),
+                                    onPressed: count > 0 ? () => _updateTallyValue(card, count - 1) : null,
+                                  ),
+                                  Container(
+                                    constraints: const BoxConstraints(minWidth: 32),
+                                    alignment: Alignment.center,
+                                    child: Text(
+                                      '$count',
+                                      style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.white),
+                                    ),
+                                  ),
+                                  IconButton(
+                                    icon: const Icon(Icons.add_circle_outline, size: 20, color: Colors.greenAccent),
+                                    onPressed: () => _updateTallyValue(card, count + 1),
+                                  ),
+                                  IconButton(
+                                    icon: const Icon(Icons.delete_outline, size: 16, color: Colors.grey),
+                                    onPressed: () => _deleteTallyItem(card.id),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _addTallyItem() async {
+    final name = _newTallyNameController.text.trim();
+    if (name.isEmpty) return;
+
+    _newTallyNameController.clear();
+    try {
+      final jsonContent = jsonEncode({'name': name, 'count': 0});
+      await _serverService.addCard(
+        pageId: 'global-tally',
+        type: 'tally',
+        content: jsonContent,
+        insertAt: _tallyCards.length,
+      );
+      await _loadTally();
+    } catch (e) {
+      debugPrint('Error adding tally item: $e');
+    }
+  }
+
+  Future<void> _updateTallyValue(models.Card card, int newValue) async {
+    try {
+      final decoded = jsonDecode(card.content) as Map<String, dynamic>;
+      final updatedJson = jsonEncode({
+        'name': decoded['name'] ?? 'Tally',
+        'count': newValue,
+      });
+      await _serverService.updateCard(
+        id: card.id,
+        pageId: 'global-tally',
+        content: updatedJson,
+      );
+      await _loadTally();
+    } catch (e) {
+      debugPrint('Error updating tally value: $e');
+    }
+  }
+
+  Future<void> _deleteTallyItem(String cardId) async {
+    try {
+      await _serverService.deleteCard(cardId);
+      await _loadTally();
+    } catch (e) {
+      debugPrint('Error deleting tally item: $e');
+    }
   }
 
   Future<void> _loadCardsForPage(String pageId) async {
@@ -351,7 +589,7 @@ class _MainJournalScreenState extends State<MainJournalScreen> {
       _navigationHistory.add(_selectedPage!.id);
     }
 
-    if (page.parentId == null && page.relationType != 'sidepage' && page.relationType != 'scratchpad') {
+    if (page.parentId == null && page.relationType != 'sidepage' && page.relationType != 'scratchpad' && page.relationType != 'tally') {
       setState(() {
         _recentlyOpenedRootPageIds.remove(page.id);
         _recentlyOpenedRootPageIds.insert(0, page.id);
@@ -848,7 +1086,7 @@ class _MainJournalScreenState extends State<MainJournalScreen> {
   Widget build(BuildContext context) {
     final allPages = _serverService.pages;
     final rootPages = allPages
-        .where((p) => p.parentId == null && p.relationType != 'sidepage' && p.relationType != 'scratchpad')
+        .where((p) => p.parentId == null && p.relationType != 'sidepage' && p.relationType != 'scratchpad' && p.relationType != 'tally')
         .toList();
 
     rootPages.sort((a, b) {
@@ -890,6 +1128,20 @@ class _MainJournalScreenState extends State<MainJournalScreen> {
               onPressed: () {
                 setState(() {
                   _showScratchpad = !_showScratchpad;
+                  if (_showScratchpad) _showTally = false;
+                });
+              },
+            ),
+            IconButton(
+              icon: Icon(
+                _showTally ? Icons.plus_one : Icons.plus_one_outlined,
+                color: _showTally ? const Color(0xFF818CF8) : null,
+              ),
+              tooltip: 'Toggle Tally Page',
+              onPressed: () {
+                setState(() {
+                  _showTally = !_showTally;
+                  if (_showTally) _showScratchpad = false;
                 });
               },
             ),
@@ -1016,9 +1268,10 @@ class _MainJournalScreenState extends State<MainJournalScreen> {
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
               child: OutlinedButton.icon(
                 onPressed: () {
-                  Navigator.pop(context); // Close the side drawer
+                  Navigator.pop(context);
                   setState(() {
                     _showScratchpad = !_showScratchpad;
+                    if (_showScratchpad) _showTally = false;
                   });
                 },
                 icon: const Icon(Icons.note_alt_outlined, size: 16, color: Color(0xFF818CF8)),
@@ -1029,6 +1282,33 @@ class _MainJournalScreenState extends State<MainJournalScreen> {
                 style: OutlinedButton.styleFrom(
                   backgroundColor: _showScratchpad ? const Color(0xFF818CF8).withOpacity(0.08) : Colors.transparent,
                   side: BorderSide(color: _showScratchpad ? const Color(0xFF818CF8) : const Color(0xFF2C2C2C)),
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                ),
+              ),
+            ),
+
+            // DEDICATED TALLY TRIGGER BUTTON
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+              child: OutlinedButton.icon(
+                onPressed: () {
+                  Navigator.pop(context);
+                  setState(() {
+                    _showTally = !_showTally;
+                    if (_showTally) _showScratchpad = false;
+                  });
+                },
+                icon: const Icon(Icons.plus_one, size: 16, color: Color(0xFF818CF8)),
+                label: Text(
+                  _showTally ? 'Close Tally Page' : 'Open Tally Page',
+                  style: const TextStyle(color: Color(0xFFCBD5E1), fontSize: 12),
+                ),
+                style: OutlinedButton.styleFrom(
+                  backgroundColor: _showTally ? const Color(0xFF818CF8).withOpacity(0.08) : Colors.transparent,
+                  side: BorderSide(color: _showTally ? const Color(0xFF818CF8) : const Color(0xFF2C2C2C)),
                   padding: const EdgeInsets.symmetric(vertical: 12),
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(8),
@@ -2174,9 +2454,11 @@ class _MainJournalScreenState extends State<MainJournalScreen> {
       ],
     );
 
-    if (_showScratchpad) {
+    final bool showSplitPane = _showScratchpad || _showTally;
+    final Widget splitPaneWidget = _showScratchpad ? _buildScratchpadPane() : _buildTallyPane();
+
+    if (showSplitPane) {
       if (_scratchpadHorizontalLayout) {
-        // SIDE-BY-SIDE PANEL WITH ADJUSTABLE WIDTH
         return Row(
           children: [
             Expanded(child: mainEditor),
@@ -2197,12 +2479,11 @@ class _MainJournalScreenState extends State<MainJournalScreen> {
             ),
             SizedBox(
               width: _scratchpadWidth,
-              child: _buildScratchpadPane(),
+              child: splitPaneWidget,
             ),
           ],
         );
       } else {
-        // TOP-AND-BOTTOM STACKED PANEL WITH VERTICAL HEIGHT ADJUSTMENT
         return Column(
           children: [
             Expanded(child: mainEditor),
@@ -2235,7 +2516,7 @@ class _MainJournalScreenState extends State<MainJournalScreen> {
             ),
             SizedBox(
               height: _scratchpadHeight,
-              child: _buildScratchpadPane(),
+              child: splitPaneWidget,
             ),
           ],
         );

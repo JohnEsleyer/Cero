@@ -1,5 +1,7 @@
 import 'dart:convert';
+import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:path_provider/path_provider.dart';
 import '../models/page_model.dart';
 import '../models/card_model.dart' as models;
 import '../services/database_service.dart';
@@ -11,6 +13,7 @@ import 'subpage_link_card.dart';
 import 'code_card.dart'; 
 import 'sites_card.dart';
 import 'page_icon.dart';
+import 'immersive_markdown_editor.dart';
 
 class CardColorPreset {
   final Color bg;
@@ -150,6 +153,8 @@ class _CardColumnState extends State<CardColumn> {
   bool _showScrollToBottom = false;
   bool _isPaginatedView = false;
   int _currentBlockIndex = 0;
+  bool _autoJumpToLastCard = false;
+  bool _preferencesLoaded = false;
   final TextEditingController _blockNumberController = TextEditingController();
   int? _pendingBlockIndex;
 
@@ -157,15 +162,58 @@ class _CardColumnState extends State<CardColumn> {
   void initState() {
     super.initState();
     widget.scrollController?.addListener(_scrollListener);
-    _blockNumberController.text = (_currentBlockIndex + 1).toString();
+    _loadPreferences();
+  }
+
+  Future<void> _loadPreferences() async {
+    try {
+      final directory = await getApplicationDocumentsDirectory();
+      final file = File('${directory.path}/preferences.json');
+      bool blockView = false;
+      bool autoJump = false;
+      if (await file.exists()) {
+        final content = await file.readAsString();
+        final Map<String, dynamic> data = jsonDecode(content);
+        blockView = data['default_to_block_view'] ?? false;
+        autoJump = data['auto_jump_to_last_card'] ?? false;
+      }
+      if (mounted) {
+        setState(() {
+          _isPaginatedView = blockView;
+          _autoJumpToLastCard = autoJump;
+          _preferencesLoaded = true;
+          if (_isPaginatedView && widget.cards.isNotEmpty) {
+            if (_autoJumpToLastCard) {
+              _currentBlockIndex = widget.cards.length - 1;
+            } else {
+              _currentBlockIndex = 0;
+            }
+            _blockNumberController.text = (_currentBlockIndex + 1).toString();
+          } else {
+            _blockNumberController.text = '1';
+          }
+        });
+      }
+    } catch (_) {
+      if (mounted) {
+        setState(() {
+          _preferencesLoaded = true;
+          _blockNumberController.text = '1';
+        });
+      }
+    }
   }
 
   @override
   void didUpdateWidget(CardColumn oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.selectedPage.id != widget.selectedPage.id) {
-      _currentBlockIndex = 0;
-      _blockNumberController.text = '1';
+      if (_isPaginatedView && _autoJumpToLastCard && widget.cards.isNotEmpty) {
+        _currentBlockIndex = widget.cards.length - 1;
+      } else {
+        _currentBlockIndex = 0;
+      }
+      _blockNumberController.text = (_currentBlockIndex + 1).toString();
       _pendingBlockIndex = null;
     }
     if (_pendingBlockIndex != null) {
@@ -220,6 +268,16 @@ class _CardColumnState extends State<CardColumn> {
     final item = newCards.removeAt(oldIndex);
     newCards.insert(newIndex > oldIndex ? newIndex - 1 : newIndex, item);
     widget.onCardsReordered(newCards.map((c) => c.id).toList());
+  }
+
+  Widget _compactNavButton(IconData icon, bool enabled, VoidCallback onPressed) {
+    return GestureDetector(
+      onTap: enabled ? onPressed : null,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+        child: Icon(icon, size: 20, color: enabled ? const Color(0xFF818CF8) : const Color(0xFF3F3F46)),
+      ),
+    );
   }
 
   Widget _buildBottomBar() {
@@ -281,7 +339,7 @@ class _CardColumnState extends State<CardColumn> {
               ),
             ),
             if (_isPaginatedView && widget.cards.isNotEmpty)
-              Container(
+              Flexible(child: Container(
                 decoration: BoxDecoration(
                   color: Colors.white.withValues(alpha: 0.02),
                   borderRadius: BorderRadius.circular(6),
@@ -291,40 +349,29 @@ class _CardColumnState extends State<CardColumn> {
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    IconButton(
-                      icon: const Icon(Icons.first_page, size: 16, color: Color(0xFF818CF8)),
-                      padding: EdgeInsets.zero,
-                      constraints: const BoxConstraints(),
-                      onPressed: _currentBlockIndex > 0 ? () {
-                        setState(() {
-                          _currentBlockIndex = 0;
-                          _blockNumberController.text = '1';
-                        });
-                      } : null,
-                    ),
-                    const SizedBox(width: 4),
-                    IconButton(
-                      icon: const Icon(Icons.chevron_left, size: 16, color: Color(0xFF818CF8)),
-                      padding: EdgeInsets.zero,
-                      constraints: const BoxConstraints(),
-                      onPressed: _currentBlockIndex > 0 ? () {
-                        setState(() {
-                          _currentBlockIndex--;
-                          _blockNumberController.text = (_currentBlockIndex + 1).toString();
-                        });
-                      } : null,
-                    ),
+                    _compactNavButton(Icons.first_page, _currentBlockIndex > 0, () {
+                      setState(() {
+                        _currentBlockIndex = 0;
+                        _blockNumberController.text = '1';
+                      });
+                    }),
+                    _compactNavButton(Icons.chevron_left, _currentBlockIndex > 0, () {
+                      setState(() {
+                        _currentBlockIndex--;
+                        _blockNumberController.text = (_currentBlockIndex + 1).toString();
+                      });
+                    }),
                     const SizedBox(width: 6),
                     Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         SizedBox(
-                          width: 24,
+                          width: 28,
                           child: TextField(
                             controller: _blockNumberController,
                             keyboardType: TextInputType.number,
                             textAlign: TextAlign.center,
-                            style: const TextStyle(fontSize: 11, color: Colors.white, fontWeight: FontWeight.bold),
+                            style: const TextStyle(fontSize: 14, color: Colors.white, fontWeight: FontWeight.bold),
                             decoration: const InputDecoration(
                               isDense: true,
                               contentPadding: EdgeInsets.zero,
@@ -342,41 +389,30 @@ class _CardColumnState extends State<CardColumn> {
                             },
                           ),
                         ),
-                        const Text('/', style: TextStyle(fontSize: 10, color: Color(0xFF3F3F46))),
-                        const SizedBox(width: 2),
+                        const Text('/', style: TextStyle(fontSize: 13, color: Color(0xFF3F3F46))),
+                        const SizedBox(width: 3),
                         Text(
                           '${widget.cards.length}',
-                          style: const TextStyle(fontSize: 11, color: Color(0xFF71717A), fontWeight: FontWeight.bold),
+                          style: const TextStyle(fontSize: 14, color: Color(0xFF71717A), fontWeight: FontWeight.bold),
                         ),
                       ],
                     ),
                     const SizedBox(width: 6),
-                    IconButton(
-                      icon: const Icon(Icons.chevron_right, size: 16, color: Color(0xFF818CF8)),
-                      padding: EdgeInsets.zero,
-                      constraints: const BoxConstraints(),
-                      onPressed: _currentBlockIndex < widget.cards.length - 1 ? () {
-                        setState(() {
-                          _currentBlockIndex++;
-                          _blockNumberController.text = (_currentBlockIndex + 1).toString();
-                        });
-                      } : null,
-                    ),
-                    const SizedBox(width: 4),
-                    IconButton(
-                      icon: const Icon(Icons.last_page, size: 16, color: Color(0xFF818CF8)),
-                      padding: EdgeInsets.zero,
-                      constraints: const BoxConstraints(),
-                      onPressed: _currentBlockIndex < widget.cards.length - 1 ? () {
-                        setState(() {
-                          _currentBlockIndex = widget.cards.length - 1;
-                          _blockNumberController.text = widget.cards.length.toString();
-                        });
-                      } : null,
-                    ),
+                    _compactNavButton(Icons.chevron_right, _currentBlockIndex < widget.cards.length - 1, () {
+                      setState(() {
+                        _currentBlockIndex++;
+                        _blockNumberController.text = (_currentBlockIndex + 1).toString();
+                      });
+                    }),
+                    _compactNavButton(Icons.last_page, _currentBlockIndex < widget.cards.length - 1, () {
+                      setState(() {
+                        _currentBlockIndex = widget.cards.length - 1;
+                        _blockNumberController.text = widget.cards.length.toString();
+                      });
+                    }),
                   ],
                 ),
-              )
+              ))
             else if (!_isPaginatedView)
               const Text(
                 'CONTINUOUS',
@@ -601,6 +637,46 @@ class _CardColumnState extends State<CardColumn> {
                       ),
                     ),
                     if (card.type == 'markdown') ...[
+                      GestureDetector(
+                        onTap: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) => ImmersiveMarkdownEditor(
+                                cardId: card.id,
+                                initialContent: card.content,
+                                onSave: (newContent) {
+                                  widget.onCardUpdated(card.id, newContent);
+                                },
+                              ),
+                            ),
+                          );
+                        },
+                        behavior: HitTestBehavior.opaque,
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 4),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                Icons.edit_outlined,
+                                size: 13,
+                                color: activePreset.textMuted,
+                              ),
+                              const SizedBox(width: 3),
+                              Text(
+                                'Edit',
+                                style: TextStyle(
+                                  fontSize: 9,
+                                  fontWeight: FontWeight.bold,
+                                  color: activePreset.textMuted,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 4),
                       GestureDetector(
                         onTap: () {
                           Navigator.push(

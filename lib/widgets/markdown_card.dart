@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:gpt_markdown/gpt_markdown.dart';
 import '../models/card_model.dart' as models;
-import 'immersive_markdown_editor.dart';
+import '../screens/reading_screen.dart';
 import '../utils/markdown_utils.dart';
+
+const int _previewWordLimit = 100;
 
 class MarkdownCard extends StatefulWidget {
   final models.Card card;
@@ -48,21 +50,22 @@ class _MarkdownCardState extends State<MarkdownCard> {
     super.dispose();
   }
 
-  void _openImmersiveEditor() {
+  void _openReadingScreen() {
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (context) => ImmersiveMarkdownEditor(
-          cardId: widget.card.id,
-          initialContent: widget.card.content,
-          onSave: (newContent) {
-            _controller.text = newContent;
-            widget.onContentChanged(newContent);
-            setState(() {});
-          },
+        builder: (context) => ReadingScreen(
+          card: widget.card,
+          cardIndex: widget.cardIndex,
         ),
       ),
     );
+  }
+
+  String _truncateContent(String content) {
+    final words = content.trim().split(RegExp(r'\s+'));
+    if (words.length <= _previewWordLimit) return content;
+    return '${words.take(_previewWordLimit).join(' ')}...';
   }
 
   @override
@@ -70,19 +73,21 @@ class _MarkdownCardState extends State<MarkdownCard> {
     final Color resolvedText = widget.textColor ?? const Color(0xFFCBD5E1);
     final Color resolvedMuted = widget.textMutedColor ?? const Color(0xFF71717A);
     final content = _controller.text;
+    final needsTruncation = content.trim().split(RegExp(r'\s+')).length > _previewWordLimit;
 
     if (content.trim().isEmpty) {
       return InkWell(
-        onTap: _openImmersiveEditor,
+        onTap: _openReadingScreen,
         child: const Padding(
           padding: EdgeInsets.all(24),
           child: Center(
             child: Text(
-              'Empty card... Tap to edit in fullscreen.',
+              'Empty card... Use the Edit button to write content.',
               style: TextStyle(
                 color: Color(0xFF4A4A4A),
                 fontStyle: FontStyle.italic,
-                fontSize: 13,
+                fontSize: 14,
+                fontFamily: 'serif',
               ),
             ),
           ),
@@ -90,67 +95,105 @@ class _MarkdownCardState extends State<MarkdownCard> {
       );
     }
 
-    return InkWell(
-      onDoubleTap: _openImmersiveEditor,
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Theme(
-          data: Theme.of(context).copyWith(
-            cardColor: const Color(0xFF151515),
-            canvasColor: const Color(0xFF151515),
-            colorScheme: Theme.of(context).colorScheme.copyWith(
-              surface: const Color(0xFF151515),
-              surfaceVariant: const Color(0xFF151515),
-              onSurface: resolvedText,
-              onSurfaceVariant: resolvedText,
-            ),
-            textTheme: Theme.of(context).textTheme.copyWith(
-              headlineLarge: TextStyle(color: resolvedText),
-              headlineMedium: TextStyle(color: resolvedText),
-              headlineSmall: TextStyle(color: resolvedText),
-              titleLarge: TextStyle(color: resolvedText),
-              titleMedium: TextStyle(color: resolvedText),
-              titleSmall: TextStyle(color: resolvedText),
-              bodyLarge: TextStyle(color: resolvedText),
-              bodyMedium: TextStyle(color: resolvedText),
-              bodySmall: TextStyle(color: resolvedText),
-            ),
-          ),
-          child: GptMarkdown(
-            formatMath(content),
-            style: TextStyle(
-              fontSize: 14,
-              height: 1.6,
-              color: resolvedText,
-            ),
-            codeBuilder: (context, name, code, closed) {
-              return Container(
-                margin: const EdgeInsets.symmetric(vertical: 8),
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: const Color(0xFF131313),
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: const Color(0xFF2C2C2C)),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        InkWell(
+          onTap: _openReadingScreen,
+          child: Padding(
+            padding: EdgeInsets.fromLTRB(12, 12, 12, needsTruncation ? 4 : 12),
+            child: Theme(
+              data: Theme.of(context).copyWith(
+                cardColor: const Color(0xFF1D1E22),
+                canvasColor: const Color(0xFF1D1E22),
+                colorScheme: Theme.of(context).colorScheme.copyWith(
+                  surface: const Color(0xFF1D1E22),
+                  surfaceVariant: const Color(0xFF1D1E22),
+                  onSurface: resolvedText,
+                  onSurfaceVariant: resolvedText,
                 ),
-                width: double.infinity,
-                child: SingleChildScrollView(
-                  scrollDirection: Axis.horizontal,
-                  child: RichText(
-                    text: TextSpan(
-                      children: highlightCode(code, name),
-                      style: const TextStyle(
-                        fontFamily: 'monospace',
-                        fontSize: 12,
-                        height: 1.5,
+                textTheme: Theme.of(context).textTheme.copyWith(
+                  headlineLarge: TextStyle(color: resolvedText),
+                  headlineMedium: TextStyle(color: resolvedText),
+                  headlineSmall: TextStyle(color: resolvedText),
+                  titleLarge: TextStyle(color: resolvedText),
+                  titleMedium: TextStyle(color: resolvedText),
+                  titleSmall: TextStyle(color: resolvedText),
+                  bodyLarge: TextStyle(color: resolvedText),
+                  bodyMedium: TextStyle(color: resolvedText),
+                  bodySmall: TextStyle(color: resolvedText),
+                ),
+              ),
+              child: GptMarkdown(
+                formatMath(needsTruncation ? _truncateContent(content) : content),
+                style: TextStyle(
+                  fontSize: 16,
+                  height: 1.8,
+                  color: resolvedText,
+                  fontFamily: 'serif',
+                ),
+                codeBuilder: (context, name, code, closed) {
+                  return Container(
+                    margin: const EdgeInsets.symmetric(vertical: 12),
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF1D1E22),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: const Color(0xFF2C2C2C)),
+                    ),
+                    width: double.infinity,
+                    child: SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      child: RichText(
+                        text: TextSpan(
+                          children: highlightCode(code, name),
+                          style: const TextStyle(
+                            fontFamily: 'monospace',
+                            fontSize: 13,
+                            height: 1.5,
+                          ),
+                        ),
                       ),
                     ),
-                  ),
-                ),
-              );
-            },
+                  );
+                },
+              ),
+            ),
           ),
         ),
-      ),
+        if (needsTruncation)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
+            child: GestureDetector(
+              onTap: _openReadingScreen,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF818CF8).withOpacity(0.08),
+                  borderRadius: BorderRadius.circular(6),
+                  border: Border.all(color: const Color(0xFF818CF8).withOpacity(0.2)),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(Icons.chrome_reader_mode_outlined, size: 13, color: Color(0xFF818CF8)),
+                    const SizedBox(width: 6),
+                    const Text(
+                      'Read Fullscreen',
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.bold,
+                        color: Color(0xFF818CF8),
+                      ),
+                    ),
+                    const Spacer(),
+                    const Icon(Icons.arrow_forward, size: 12, color: Color(0xFF818CF8)),
+                  ],
+                ),
+              ),
+            ),
+          ),
+      ],
     );
   }
 }

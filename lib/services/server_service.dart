@@ -99,8 +99,8 @@ class ServerService extends ChangeNotifier {
 
   static int totalBytesSent = 0;
   static int totalBytesReceived = 0;
-  static double currentRxSpeed = 0.0; // in KB/s
-  static double currentTxSpeed = 0.0; // in KB/s
+  static double currentRxSpeed = 0.0;
+  static double currentTxSpeed = 0.0;
 
   static int _lastBytesSent = 0;
   static int _lastBytesReceived = 0;
@@ -154,6 +154,25 @@ class ServerService extends ChangeNotifier {
       );
 
       if (interfaces.isNotEmpty) {
+        NetworkInterface? bestInterface;
+        for (var interface in interfaces) {
+          final name = interface.name.toLowerCase();
+          if (name.contains('wlan') || name.contains('ap') || name.contains('en') || name.contains('eth')) {
+            bestInterface = interface;
+            break;
+          }
+        }
+
+        final selectedInterface = bestInterface ?? interfaces.first;
+
+        for (var addr in selectedInterface.addresses) {
+          if (!addr.isLoopback) {
+            _localIp = addr.address;
+            notifyListeners();
+            return;
+          }
+        }
+
         for (var interface in interfaces) {
           for (var addr in interface.addresses) {
             if (!addr.isLoopback) {
@@ -306,6 +325,14 @@ class ServerService extends ChangeNotifier {
 
       _udpSocket!.send(dataToSend, InternetAddress(_multicastAddr), _udpPort);
       _udpSocket!.send(dataToSend, InternetAddress('255.255.255.255'), _udpPort);
+
+      if (_localIp != '127.0.0.1' && _localIp.contains('.')) {
+        final parts = _localIp.split('.');
+        if (parts.length == 4) {
+          final subnetBroadcast = '${parts[0]}.${parts[1]}.${parts[2]}.255';
+          _udpSocket!.send(dataToSend, InternetAddress(subnetBroadcast), _udpPort);
+        }
+      }
     } catch (e) {
       debugPrint('UDP broadcast error: $e');
     }
@@ -498,6 +525,10 @@ class ServerService extends ChangeNotifier {
     return _pages
         .where((p) => p.parentId == parentId && p.relationType == 'sidepage')
         .toList();
+  }
+
+  Future<List<DbPage>> getArchivedPages() async {
+    return await _dbService.getArchivedPages();
   }
 
   // --- WebSocket Client Handling ---
@@ -1009,10 +1040,6 @@ class ServerService extends ChangeNotifier {
     }
   }
 
-  Future<List<DbPage>> getArchivedPages() async {
-    return await _dbService.getArchivedPages();
-  }
-
   Future<void> hardDeletePage(String id) async {
     try {
       await _dbService.hardDeletePageRecursive(id);
@@ -1030,6 +1057,7 @@ class ServerService extends ChangeNotifier {
     required String pageId,
     required String type,
     required String content,
+    String? comment,
     int? insertAt,
   }) async {
     if (_isClientMode && _isClientPaired) {
@@ -1038,6 +1066,7 @@ class ServerService extends ChangeNotifier {
         pageId: pageId,
         type: type,
         content: content,
+        comment: comment ?? '',
         sortOrder: insertAt ?? 0,
         createdAt: DateTime.now(),
         updatedAt: DateTime.now(),
@@ -1059,6 +1088,7 @@ class ServerService extends ChangeNotifier {
       pageId: pageId,
       type: type,
       content: content,
+      comment: comment ?? '',
       sortOrder: targetSortOrder,
       createdAt: DateTime.now(),
       updatedAt: DateTime.now(),

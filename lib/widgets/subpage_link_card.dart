@@ -42,9 +42,7 @@ class SubpageLinkCard extends StatelessWidget {
         ? allPages.where((p) => p.id == targetPageId).firstOrNull
         : null;
 
-    final Color resolvedText = textColor ?? const Color(0xFFCBD5E1);
     final Color resolvedBorder = borderColor ?? const Color(0xFF2C2C2C);
-    final Color resolvedMuted = textMutedColor ?? const Color(0xFF71717A);
 
     String? coverUrl;
     if (targetPage != null) {
@@ -152,55 +150,78 @@ class SubpageLinkCard extends StatelessWidget {
     showDialog(
       context: context,
       builder: (ctx) {
-        final candidates = allPages.where((p) => p.id != currentPage.id && p.parentId == currentPage.id).toList();
+        final candidates = allPages
+            .where((p) => p.id != currentPage.id && p.parentId == currentPage.id)
+            .toList();
 
         return AlertDialog(
           backgroundColor: const Color(0xFF202020),
-          title: const Text('Select Subpage', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
+          title: const Text(
+            'Select Subpage',
+            style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
+          ),
           content: SizedBox(
             width: double.maxFinite,
-            height: 250,
-            child: candidates.isEmpty
-                ? Center(
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        const Text('No subpages found.', style: TextStyle(color: Colors.grey, fontSize: 11)),
-                        const SizedBox(height: 12),
-                        if (onCreateNewPage != null)
-                          ElevatedButton(
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: const Color(0xFF818CF8),
-                              foregroundColor: Colors.white,
-                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                            ),
-                            onPressed: () async {
-                              Navigator.pop(ctx);
-                              final newPage = await onCreateNewPage!(currentPage.id);
-                              if (newPage != null) {
-                                onContentChanged(newPage.id);
-                              }
-                            },
-                            child: const Text('Create New Subpage', style: TextStyle(fontSize: 10)),
-                          ),
-                      ],
+            height: 300,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                if (onCreateNewPage != null) ...[
+                  ElevatedButton.icon(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF818CF8),
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 10),
+                    ),
+                    onPressed: () async {
+                      Navigator.pop(ctx);
+                      final newPage = await onCreateNewPage!(currentPage.id);
+                      if (newPage != null) {
+                        onContentChanged(newPage.id);
+                      }
+                    },
+                    icon: const Icon(Icons.add, size: 14),
+                    label: const Text('Create New Page', style: TextStyle(fontSize: 11)),
+                  ),
+                  const SizedBox(height: 12),
+                ],
+                if (candidates.isEmpty)
+                  const Expanded(
+                    child: Center(
+                      child: Text(
+                        'No subpages found.',
+                        style: TextStyle(color: Colors.grey, fontSize: 11),
+                      ),
                     ),
                   )
-                : ListView.builder(
-                    itemCount: candidates.length,
-                    itemBuilder: (cCtx, index) {
-                      final page = candidates[index];
-                      return ListTile(
-                        dense: true,
-                        leading: PageIcon(emoji: page.emoji, size: 14, dbService: dbService),
-                        title: Text(page.title.isEmpty ? 'Untitled' : page.title, style: const TextStyle(fontSize: 12, color: Colors.white)),
-                        onTap: () {
-                          Navigator.pop(ctx);
-                          onContentChanged(page.id);
-                        },
-                      );
-                    },
+                else
+                  Expanded(
+                    child: ListView.builder(
+                      itemCount: candidates.length,
+                      itemBuilder: (cCtx, index) {
+                        final page = candidates[index];
+                        return ListTile(
+                          dense: true,
+                          leading: PageIcon(
+                            emoji: page.emoji,
+                            size: 14,
+                            dbService: dbService,
+                          ),
+                          title: Text(
+                            page.title.isEmpty ? 'Untitled' : page.title,
+                            style: const TextStyle(fontSize: 12, color: Colors.white),
+                          ),
+                          onTap: () {
+                            Navigator.pop(ctx);
+                            onContentChanged(page.id);
+                          },
+                        );
+                      },
+                    ),
                   ),
+              ],
+            ),
           ),
           actions: [
             TextButton(

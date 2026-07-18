@@ -131,6 +131,12 @@ class DatabaseService {
       VALUES ('global-scratchpad-card', 'global-scratchpad', 'markdown', '', '', 0, ?, ?, 0)
     ''', [now, now]);
 
+    // GUARANTEE GLOBAL TALLY PAGE EXISTS
+    await db.execute('''
+      INSERT OR IGNORE INTO pages (id, parent_id, relation_type, title, emoji, created_at, updated_at, is_archived, sort_order, revision)
+      VALUES ('global-tally', NULL, 'tally', 'Global Tally', '', ?, ?, 0, 0, 0)
+    ''', [now, now]);
+
     return db;
   }
 

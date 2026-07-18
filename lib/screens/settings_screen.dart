@@ -1,8 +1,10 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:path/path.dart' as p;
+import 'package:path_provider/path_provider.dart';
 import '../services/server_service.dart';
 
 class SettingsScreen extends StatefulWidget {
@@ -22,11 +24,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _isLoading = false;
   Timer? _resourceUpdateTimer;
 
+  bool _defaultToBlockView = false;
+  bool _autoJumpToLastCard = false;
+
   @override
   void initState() {
     super.initState();
     _serverService = widget.serverService;
     _loadWorkspaceData();
+    _loadPreferences();
     _resourceUpdateTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
       if (mounted) {
         setState(() {});
@@ -38,6 +44,33 @@ class _SettingsScreenState extends State<SettingsScreen> {
   void dispose() {
     _resourceUpdateTimer?.cancel();
     super.dispose();
+  }
+
+  Future<void> _loadPreferences() async {
+    try {
+      final directory = await getApplicationDocumentsDirectory();
+      final file = File('${directory.path}/preferences.json');
+      if (await file.exists()) {
+        final content = await file.readAsString();
+        final Map<String, dynamic> data = jsonDecode(content);
+        setState(() {
+          _defaultToBlockView = data['default_to_block_view'] ?? false;
+          _autoJumpToLastCard = data['auto_jump_to_last_card'] ?? false;
+        });
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _savePreferences() async {
+    try {
+      final directory = await getApplicationDocumentsDirectory();
+      final file = File('${directory.path}/preferences.json');
+      final data = {
+        'default_to_block_view': _defaultToBlockView,
+        'auto_jump_to_last_card': _autoJumpToLastCard,
+      };
+      await file.writeAsString(jsonEncode(data));
+    } catch (_) {}
   }
 
   Future<void> _loadWorkspaceData() async {
@@ -328,6 +361,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   _buildSectionHeader('DATABASE INFORMATION'),
                   _buildPathCard(),
                   const SizedBox(height: 24),
+                  _buildSectionHeader('USER PREFERENCES'),
+                  _buildPreferencesCard(),
+                  const SizedBox(height: 24),
                   _buildSectionHeader('SYSTEM METRICS & BACKGROUND SERVICES'),
                   _buildMetricsCard(),
                   const SizedBox(height: 24),
@@ -387,6 +423,62 @@ class _SettingsScreenState extends State<SettingsScreen> {
     } catch (_) {
       return const SizedBox();
     }
+  }
+
+  Widget _buildPreferencesCard() {
+    return Card(
+      color: const Color(0xFF202020),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(10),
+        side: const BorderSide(color: Color(0xFF2C2C2C)),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Row(
+              children: [
+                Icon(Icons.tune, color: Color(0xFF818CF8), size: 18),
+                SizedBox(width: 8),
+                Text(
+                  'Journal Preferences',
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            SwitchListTile.adaptive(
+              title: const Text('Default to Block View', style: TextStyle(fontSize: 13, color: Colors.white)),
+              subtitle: const Text('Open pages in Block View rather than Scroll View by default.', style: TextStyle(fontSize: 11, color: Colors.grey)),
+              value: _defaultToBlockView,
+              activeColor: const Color(0xFF818CF8),
+              contentPadding: EdgeInsets.zero,
+              onChanged: (val) {
+                setState(() {
+                  _defaultToBlockView = val;
+                });
+                _savePreferences();
+              },
+            ),
+            const Divider(height: 16, color: Color(0xFF2C2C2C)),
+            SwitchListTile.adaptive(
+              title: const Text('Auto-Navigate to Last Card', style: TextStyle(fontSize: 13, color: Colors.white)),
+              subtitle: const Text('Automatically jump to the last card block when opening a page in Block View.', style: TextStyle(fontSize: 11, color: Colors.grey)),
+              value: _autoJumpToLastCard,
+              activeColor: const Color(0xFF818CF8),
+              contentPadding: EdgeInsets.zero,
+              onChanged: (val) {
+                setState(() {
+                  _autoJumpToLastCard = val;
+                });
+                _savePreferences();
+              },
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   Widget _buildMetricsCard() {
