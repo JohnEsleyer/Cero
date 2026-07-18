@@ -63,9 +63,11 @@ class _MarkdownCardState extends State<MarkdownCard> {
   }
 
   String _truncateContent(String content) {
-    final words = content.trim().split(RegExp(r'\s+'));
-    if (words.length <= _previewWordLimit) return content;
-    return '${words.take(_previewWordLimit).join(' ')}...';
+    final RegExp wordRegExp = RegExp(r'\S+');
+    final matches = wordRegExp.allMatches(content);
+    if (matches.length <= _previewWordLimit) return content;
+    final lastMatch = matches.elementAt(_previewWordLimit - 1);
+    return '${content.substring(0, lastMatch.end)}...';
   }
 
   @override
