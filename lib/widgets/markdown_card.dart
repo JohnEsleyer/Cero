@@ -93,7 +93,6 @@ class _MarkdownCardState extends State<MarkdownCard> {
                 color: Color(0xFF4A4A4A),
                 fontStyle: FontStyle.italic,
                 fontSize: 14,
-                fontFamily: 'serif',
               ),
             ),
           ),
@@ -136,7 +135,6 @@ class _MarkdownCardState extends State<MarkdownCard> {
                   fontSize: 16,
                   height: 1.8,
                   color: resolvedText,
-                  fontFamily: 'serif',
                 ),
                 codeBuilder: (context, name, code, closed) {
                   return Container(

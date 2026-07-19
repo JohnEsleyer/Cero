@@ -538,7 +538,6 @@ class _ReadingScreenState extends State<ReadingScreen> {
                 fontSize: 16,
                 height: 1.8,
                 color: Color(0xFFE2E8F0),
-                fontFamily: 'serif',
               ),
               codeBuilder: (context, name, code, closed) {
                 return Container(
