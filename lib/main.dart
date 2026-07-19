@@ -998,7 +998,7 @@ class _MainJournalScreenState extends State<MainJournalScreen> {
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
       children: [
-        SingleChildScrollView(
+        Navigator.canPop(context) ? const SizedBox.shrink() : SingleChildScrollView(
           scrollDirection: Axis.horizontal,
           child: Row(
             children: path.asMap().entries.map((entry) {
@@ -1262,61 +1262,6 @@ class _MainJournalScreenState extends State<MainJournalScreen> {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             _buildDrawerHeader(),
-            
-            // DEDICATED SCRATCHPAD TRIGGER BUTTON
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              child: OutlinedButton.icon(
-                onPressed: () {
-                  Navigator.pop(context);
-                  setState(() {
-                    _showScratchpad = !_showScratchpad;
-                    if (_showScratchpad) _showTally = false;
-                  });
-                },
-                icon: const Icon(Icons.note_alt_outlined, size: 16, color: Color(0xFF818CF8)),
-                label: Text(
-                  _showScratchpad ? 'Close Scratchpad' : 'Open Scratchpad',
-                  style: const TextStyle(color: Color(0xFFCBD5E1), fontSize: 12),
-                ),
-                style: OutlinedButton.styleFrom(
-                  backgroundColor: _showScratchpad ? const Color(0xFF818CF8).withOpacity(0.08) : Colors.transparent,
-                  side: BorderSide(color: _showScratchpad ? const Color(0xFF818CF8) : const Color(0xFF2C2C2C)),
-                  padding: const EdgeInsets.symmetric(vertical: 12),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                ),
-              ),
-            ),
-
-            // DEDICATED TALLY TRIGGER BUTTON
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-              child: OutlinedButton.icon(
-                onPressed: () {
-                  Navigator.pop(context);
-                  setState(() {
-                    _showTally = !_showTally;
-                    if (_showTally) _showScratchpad = false;
-                  });
-                },
-                icon: const Icon(Icons.plus_one, size: 16, color: Color(0xFF818CF8)),
-                label: Text(
-                  _showTally ? 'Close Tally Page' : 'Open Tally Page',
-                  style: const TextStyle(color: Color(0xFFCBD5E1), fontSize: 12),
-                ),
-                style: OutlinedButton.styleFrom(
-                  backgroundColor: _showTally ? const Color(0xFF818CF8).withOpacity(0.08) : Colors.transparent,
-                  side: BorderSide(color: _showTally ? const Color(0xFF818CF8) : const Color(0xFF2C2C2C)),
-                  padding: const EdgeInsets.symmetric(vertical: 12),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                ),
-              ),
-            ),
-
             if (!_showArchived)
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
