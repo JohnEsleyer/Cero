@@ -1,6 +1,8 @@
 
 import 'package:flutter/material.dart';
 import '../models/card_model.dart' as models;
+import '../screens/reading_screen.dart';
+import '../services/server_service.dart';
 import 'immersive_code_editor.dart';
 import '../utils/markdown_utils.dart';
 
@@ -11,6 +13,7 @@ class CodeCard extends StatefulWidget {
   final VoidCallback? onMoveUp;
   final VoidCallback? onMoveDown;
   final int? cardIndex;
+  final ServerService? serverService;
 
   const CodeCard({
     super.key,
@@ -20,6 +23,7 @@ class CodeCard extends StatefulWidget {
     this.onMoveUp,
     this.onMoveDown,
     this.cardIndex,
+    this.serverService,
   });
 
   @override
@@ -86,47 +90,10 @@ class _CodeCardState extends State<CodeCard> {
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (context) => Scaffold(
-          backgroundColor: const Color(0xFF0A0A0A),
-          appBar: AppBar(
-            backgroundColor: const Color(0xFF1A1A1A),
-            elevation: 0,
-            title: Text(
-              _lang.toUpperCase(),
-              style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Color(0xFF818CF8)),
-            ),
-            leading: IconButton(
-              icon: const Icon(Icons.arrow_back, color: Colors.white),
-              onPressed: () => Navigator.pop(context),
-            ),
-          ),
-          body: SafeArea(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.all(20),
-              child: SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                child: Container(
-                  constraints: BoxConstraints(minWidth: MediaQuery.of(context).size.width - 40),
-                  padding: const EdgeInsets.all(20),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF111111),
-                    borderRadius: BorderRadius.circular(10),
-                    border: Border.all(color: const Color(0xFF2C2C2C)),
-                  ),
-                  child: RichText(
-                    text: TextSpan(
-                      children: highlightCode(_codeText, _lang),
-                      style: const TextStyle(
-                        fontFamily: 'monospace',
-                        fontSize: 14,
-                        height: 1.6,
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          ),
+        builder: (context) => ReadingScreen(
+          card: widget.card,
+          cardIndex: widget.cardIndex ?? 0,
+          serverService: widget.serverService,
         ),
       ),
     );

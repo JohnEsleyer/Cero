@@ -121,7 +121,7 @@ class CardColumn extends StatefulWidget {
   final DbPage selectedPage;
   final ValueChanged<DbPage> onNavigateToPage;
   final Future<void> Function(String cardId, String content) onCardUpdated;
-  final Future<void> Function(String pageId, String type, String content, {int? insertAt}) onCardAdded;
+  final Future<models.Card?> Function(String pageId, String type, String content, {int? insertAt}) onCardAdded;
   final Future<void> Function(String cardId) onCardDeleted;
   final Future<void> Function(List<String> cardIds) onCardsReordered;
   final Future<DbPage?> Function(String parentId)? onCreateNewPage;
@@ -527,11 +527,26 @@ class _CardColumnState extends State<CardColumn> {
 
   Widget _emptyPageBlockTrigger(String label, String type, IconData icon, {String initialContent = ''}) {
     return ElevatedButton.icon(
-      onPressed: () {
+      onPressed: () async {
         if (_isPaginatedView) {
           _pendingBlockIndex = 0;
         }
-        widget.onCardAdded(widget.selectedPage.id, type, initialContent, insertAt: 0);
+        final newCard = await widget.onCardAdded(widget.selectedPage.id, type, initialContent, insertAt: 0);
+        if (type == 'markdown' && newCard != null && context.mounted) {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => ImmersiveMarkdownEditor(
+                cardId: newCard.id,
+                initialContent: newCard.content,
+                serverService: widget.serverService,
+                onSave: (newContent) {
+                  widget.onCardUpdated(newCard.id, newContent);
+                },
+              ),
+            ),
+          );
+        }
       },
       icon: Icon(icon, size: 16),
       label: Text(label),
@@ -645,6 +660,7 @@ class _CardColumnState extends State<CardColumn> {
                               builder: (context) => ImmersiveMarkdownEditor(
                                 cardId: card.id,
                                 initialContent: card.content,
+                                serverService: widget.serverService,
                                 onSave: (newContent) {
                                   widget.onCardUpdated(card.id, newContent);
                                 },
@@ -886,6 +902,7 @@ class _CardColumnState extends State<CardColumn> {
           card: card,
           onContentChanged: (content) => widget.onCardUpdated(card.id, content),
           cardIndex: displayIndex,
+          serverService: widget.serverService,
           textColor: activePreset.text,
           textMutedColor: activePreset.textMuted,
         );
@@ -919,6 +936,7 @@ class _CardColumnState extends State<CardColumn> {
           card: card,
           onContentChanged: (content) => widget.onCardUpdated(card.id, content),
           cardIndex: displayIndex,
+          serverService: widget.serverService,
         );
       case 'sites':
         return SitesCard(
@@ -933,6 +951,7 @@ class _CardColumnState extends State<CardColumn> {
           card: card,
           onContentChanged: (content) => widget.onCardUpdated(card.id, content),
           cardIndex: displayIndex,
+          serverService: widget.serverService,
           textColor: activePreset.text,
           textMutedColor: activePreset.textMuted,
         );
@@ -1153,12 +1172,27 @@ class _CardColumnState extends State<CardColumn> {
       leading: Icon(icon, color: const Color(0xFF818CF8)),
       title: Text(title, style: const TextStyle(color: Colors.white)),
       subtitle: Text(subtitle, style: const TextStyle(color: Colors.grey, fontSize: 11)),
-      onTap: () {
+      onTap: () async {
         Navigator.pop(ctx);
         if (_isPaginatedView) {
           _pendingBlockIndex = index;
         }
-        widget.onCardAdded(widget.selectedPage.id, type, initialContent, insertAt: index);
+        final newCard = await widget.onCardAdded(widget.selectedPage.id, type, initialContent, insertAt: index);
+        if (type == 'markdown' && newCard != null && ctx.mounted) {
+          Navigator.push(
+            ctx,
+            MaterialPageRoute(
+              builder: (context) => ImmersiveMarkdownEditor(
+                cardId: newCard.id,
+                initialContent: newCard.content,
+                serverService: widget.serverService,
+                onSave: (newContent) {
+                  widget.onCardUpdated(newCard.id, newContent);
+                },
+              ),
+            ),
+          );
+        }
       },
     );
   }

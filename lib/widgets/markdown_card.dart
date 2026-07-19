@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:gpt_markdown/gpt_markdown.dart';
 import '../models/card_model.dart' as models;
 import '../screens/reading_screen.dart';
+import '../services/server_service.dart';
 import '../utils/markdown_utils.dart';
 
 const int _previewWordLimit = 100;
@@ -10,6 +11,7 @@ class MarkdownCard extends StatefulWidget {
   final models.Card card;
   final ValueChanged<String> onContentChanged;
   final int cardIndex;
+  final ServerService? serverService;
 
   final Color? textColor;
   final Color? textMutedColor;
@@ -19,6 +21,7 @@ class MarkdownCard extends StatefulWidget {
     required this.card,
     required this.onContentChanged,
     required this.cardIndex,
+    this.serverService,
     this.textColor,
     this.textMutedColor,
   });
@@ -57,6 +60,7 @@ class _MarkdownCardState extends State<MarkdownCard> {
         builder: (context) => ReadingScreen(
           card: widget.card,
           cardIndex: widget.cardIndex,
+          serverService: widget.serverService,
         ),
       ),
     );

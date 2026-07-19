@@ -1053,7 +1053,7 @@ class ServerService extends ChangeNotifier {
 
   // --- Card Action Handlers ---
 
-  Future<void> addCard({
+  Future<Card> addCard({
     required String pageId,
     required String type,
     required String content,
@@ -1078,7 +1078,7 @@ class ServerService extends ChangeNotifier {
       });
       _clientSocket?.add(payload);
       totalBytesSent += utf8.encode(payload).length;
-      return;
+      return card;
     }
     final cards = await _dbService.getCards(pageId);
     final targetSortOrder = insertAt ?? (cards.isEmpty ? 0 : cards.map((c) => c.sortOrder).reduce((a, b) => a > b ? a : b) + 1);
@@ -1094,6 +1094,7 @@ class ServerService extends ChangeNotifier {
       updatedAt: DateTime.now(),
     );
     await _addCard(card, insertAt: insertAt, fromRemote: false);
+    return card;
   }
 
   Future<void> _addCard(Card card, {int? insertAt, required bool fromRemote}) async {

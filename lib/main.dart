@@ -2423,7 +2423,7 @@ class _MainJournalScreenState extends State<MainJournalScreen> {
               _loadCardsForPage(_selectedPage!.id);
             },
             onCardAdded: (pageId, type, content, {insertAt}) async {
-              await _serverService.addCard(
+              final newCard = await _serverService.addCard(
                 pageId: pageId,
                 type: type,
                 content: content,
@@ -2437,6 +2437,7 @@ class _MainJournalScreenState extends State<MainJournalScreen> {
                   );
                 }
               });
+              return newCard;
             },
             onCardDeleted: (cardId) async {
               await _serverService.deleteCard(cardId);
