@@ -155,6 +155,7 @@ class _CardColumnState extends State<CardColumn> {
   int _currentBlockIndex = 0;
   bool _autoJumpToLastCard = false;
   bool _preferencesLoaded = false;
+  bool _defaultToBlockView = false;
   final TextEditingController _blockNumberController = TextEditingController();
   int? _pendingBlockIndex;
 
@@ -177,21 +178,15 @@ class _CardColumnState extends State<CardColumn> {
         blockView = data['default_to_block_view'] ?? false;
         autoJump = data['auto_jump_to_last_card'] ?? false;
       }
+
+      _defaultToBlockView = blockView;
+      _autoJumpToLastCard = autoJump;
+
+      await _loadPageSpecificViewMode();
+
       if (mounted) {
         setState(() {
-          _isPaginatedView = blockView;
-          _autoJumpToLastCard = autoJump;
           _preferencesLoaded = true;
-          if (_isPaginatedView && widget.cards.isNotEmpty) {
-            if (_autoJumpToLastCard) {
-              _currentBlockIndex = widget.cards.length - 1;
-            } else {
-              _currentBlockIndex = 0;
-            }
-            _blockNumberController.text = (_currentBlockIndex + 1).toString();
-          } else {
-            _blockNumberController.text = '1';
-          }
         });
       }
     } catch (_) {
@@ -204,16 +199,55 @@ class _CardColumnState extends State<CardColumn> {
     }
   }
 
+  Future<void> _loadPageSpecificViewMode() async {
+    try {
+      final directory = await getApplicationDocumentsDirectory();
+      final file = File('${directory.path}/page_views.json');
+      bool pageBlockView = _defaultToBlockView;
+      if (await file.exists()) {
+        final content = await file.readAsString();
+        final Map<String, dynamic> data = jsonDecode(content);
+        if (data.containsKey(widget.selectedPage.id)) {
+          pageBlockView = data[widget.selectedPage.id] as bool;
+        }
+      }
+      if (mounted) {
+        setState(() {
+          _isPaginatedView = pageBlockView;
+          if (_isPaginatedView && widget.cards.isNotEmpty) {
+            if (_autoJumpToLastCard) {
+              _currentBlockIndex = widget.cards.length - 1;
+            } else {
+              _currentBlockIndex = 0;
+            }
+            _blockNumberController.text = (_currentBlockIndex + 1).toString();
+          } else {
+            _blockNumberController.text = '1';
+          }
+        });
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _savePageSpecificViewMode(bool val) async {
+    try {
+      final directory = await getApplicationDocumentsDirectory();
+      final file = File('${directory.path}/page_views.json');
+      Map<String, dynamic> data = {};
+      if (await file.exists()) {
+        final content = await file.readAsString();
+        data = jsonDecode(content) as Map<String, dynamic>;
+      }
+      data[widget.selectedPage.id] = val;
+      await file.writeAsString(jsonEncode(data));
+    } catch (_) {}
+  }
+
   @override
   void didUpdateWidget(CardColumn oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.selectedPage.id != widget.selectedPage.id) {
-      if (_isPaginatedView && _autoJumpToLastCard && widget.cards.isNotEmpty) {
-        _currentBlockIndex = widget.cards.length - 1;
-      } else {
-        _currentBlockIndex = 0;
-      }
-      _blockNumberController.text = (_currentBlockIndex + 1).toString();
+      _loadPageSpecificViewMode();
       _pendingBlockIndex = null;
     }
     if (_pendingBlockIndex != null) {
@@ -296,6 +330,7 @@ class _CardColumnState extends State<CardColumn> {
               onTap: () {
                 setState(() {
                   _isPaginatedView = !_isPaginatedView;
+                  _savePageSpecificViewMode(_isPaginatedView);
                   if (_isPaginatedView) {
                     if (_currentBlockIndex >= widget.cards.length) {
                       _currentBlockIndex = widget.cards.isEmpty ? 0 : widget.cards.length - 1;
