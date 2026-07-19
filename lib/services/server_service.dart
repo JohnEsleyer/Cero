@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import '../models/page_model.dart';
 import '../models/card_model.dart';
 import 'database_service.dart';
@@ -54,6 +55,8 @@ class ServerService extends ChangeNotifier {
   RawDatagramSocket? _udpSocket;
   Timer? _udpBroadcastTimer;
 
+  static const _foregroundChannel = MethodChannel('com.example.pocketdatabase/foreground_service');
+
   bool _isRunning = false;
   String _localIp = 'Unknown';
   final int _wsPort = 9090;
@@ -74,6 +77,19 @@ class ServerService extends ChangeNotifier {
   List<PendingConnection> get pendingConnections => _pendingConnections;
   List<DbPage> get pages => _pages;
   DatabaseService get dbService => _dbService;
+
+  ServerService() {
+    _setupForegroundServiceChannel();
+  }
+
+  void _setupForegroundServiceChannel() {
+    _foregroundChannel.setMethodCallHandler((call) async {
+      if (call.method == 'onStopCommand') {
+        debugPrint('Received stop command from native Android notification');
+        await stopServer();
+      }
+    });
+  }
 
   // --- Client Mode Properties ---
 
@@ -259,6 +275,25 @@ class ServerService extends ChangeNotifier {
 
       _authPin = _generatePin();
 
+      if (Platform.isAndroid) {
+        try {
+          await _foregroundChannel.invokeMethod('requestNotificationPermission');
+        } catch (e) {
+          debugPrint('Error requesting notification permission: $e');
+        }
+      }
+
+      if (Platform.isAndroid) {
+        try {
+          await _foregroundChannel.invokeMethod('startService', {
+            'ip': _localIp,
+            'pin': _authPin,
+          });
+        } catch (e) {
+          debugPrint('Error starting native foreground service: $e');
+        }
+      }
+
       _udpSocket = await RawDatagramSocket.bind(InternetAddress.anyIPv4, 0);
       _udpSocket!.broadcastEnabled = true;
       _udpSocket!.joinMulticast(InternetAddress(_multicastAddr));
@@ -298,6 +333,14 @@ class ServerService extends ChangeNotifier {
     _httpServer = null;
 
     await MulticastLockHelper.release();
+
+    if (Platform.isAndroid) {
+      try {
+        await _foregroundChannel.invokeMethod('stopService');
+      } catch (e) {
+        debugPrint('Error stopping native foreground service: $e');
+      }
+    }
 
     _isRunning = false;
     notifyListeners();
