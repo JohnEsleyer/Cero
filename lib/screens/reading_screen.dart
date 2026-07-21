@@ -247,7 +247,7 @@ class _ReadingScreenState extends State<ReadingScreen> {
                             ),
                           )
                         : GptMarkdown(
-                            _scratchpadController.text,
+                            formatMath(_scratchpadController.text),
                             style: const TextStyle(fontSize: 13, height: 1.5, color: Color(0xFFCBD5E1)),
                           ),
                   )
@@ -533,7 +533,7 @@ class _ReadingScreenState extends State<ReadingScreen> {
               ),
             ),
             child: GptMarkdown(
-              widget.card.content,
+              formatMath(widget.card.content),
               style: const TextStyle(
                 fontSize: 16,
                 height: 1.8,
