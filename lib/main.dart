@@ -105,7 +105,7 @@ class _MainJournalScreenState extends State<MainJournalScreen> {
     _scratchpadController.addListener(_saveScratchpadDebounced);
 
     _clientIpController.text = _serverService.lastConnectedIp;
-    _clientPinController.text = _serverService.lastConnectedPin;
+    _clientPinController.clear();
   }
 
   Future<void> _loadRecentlyOpened() async {
@@ -160,9 +160,6 @@ class _MainJournalScreenState extends State<MainJournalScreen> {
       setState(() {
         if (_clientIpController.text.isEmpty && _serverService.lastConnectedIp.isNotEmpty) {
           _clientIpController.text = _serverService.lastConnectedIp;
-        }
-        if (_clientPinController.text.isEmpty && _serverService.lastConnectedPin.isNotEmpty) {
-          _clientPinController.text = _serverService.lastConnectedPin;
         }
 
         if (_selectedPage != null) {
@@ -1778,6 +1775,82 @@ class _MainJournalScreenState extends State<MainJournalScreen> {
     );
   }
 
+  void _showPinEntryDialog(DiscoveredServer server) {
+    final pinController = TextEditingController();
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF202020),
+        title: Row(
+          children: [
+            const Icon(Icons.link, color: Color(0xFF818CF8)),
+            const SizedBox(width: 8),
+            Text(
+              'Link to ${server.deviceName}',
+              style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.white),
+            ),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Enter the 4-digit Auth PIN shown on the host device (${server.ip}):',
+              style: const TextStyle(fontSize: 12, color: Colors.grey),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: pinController,
+              autofocus: true,
+              keyboardType: TextInputType.number,
+              maxLength: 4,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 18,
+                letterSpacing: 8,
+                fontWeight: FontWeight.bold,
+              ),
+              decoration: const InputDecoration(
+                hintText: '••••',
+                hintStyle: TextStyle(color: Colors.grey, letterSpacing: 8),
+                counterText: '',
+                enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: Color(0xFF3E3E3E))),
+                focusedBorder: UnderlineInputBorder(borderSide: BorderSide(color: Color(0xFF818CF8))),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel', style: TextStyle(color: Colors.grey)),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              final pin = pinController.text.trim();
+              if (pin.length == 4) {
+                Navigator.pop(ctx);
+                final success = await _serverService.connectToHost(server.ip, _serverService.wsPort, pin);
+                if (!success && mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('Failed to connect: ${_serverService.clientError}')),
+                  );
+                }
+              }
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF818CF8),
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('Connect'),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildRemoteModePanel() {
     final isConnected = _serverService.isClientConnected;
     final isPaired = _serverService.isClientPaired;
@@ -1796,24 +1869,6 @@ class _MainJournalScreenState extends State<MainJournalScreen> {
           const Text(
             'Connect to a Cero host',
             style: TextStyle(fontSize: 11, color: Colors.grey),
-          ),
-          const SizedBox(height: 12),
-          // Auto-connect Toggle Switch
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              const Text(
-                'Auto-detect & connect',
-                style: TextStyle(fontSize: 12, color: Colors.white, fontWeight: FontWeight.bold),
-              ),
-              Switch.adaptive(
-                value: _serverService.autoConnectEnabled,
-                activeColor: const Color(0xFF818CF8),
-                onChanged: (val) {
-                  _serverService.setAutoConnect(val);
-                },
-              ),
-            ],
           ),
           const SizedBox(height: 12),
           // Discovered servers
@@ -1843,7 +1898,7 @@ class _MainJournalScreenState extends State<MainJournalScreen> {
                       ),
                       trailing: const Icon(Icons.link, size: 14, color: Color(0xFF818CF8)),
                       onTap: () {
-                        _clientIpController.text = server.ip;
+                        _showPinEntryDialog(server);
                       },
                     ),
                   );

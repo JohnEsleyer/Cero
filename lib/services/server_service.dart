@@ -108,12 +108,7 @@ class ServerService extends ChangeNotifier {
   // --- Persistent Client Settings ---
 
   String _lastConnectedIp = '';
-  String _lastConnectedPin = '';
-  bool _autoConnectEnabled = false;
-
   String get lastConnectedIp => _lastConnectedIp;
-  String get lastConnectedPin => _lastConnectedPin;
-  bool get autoConnectEnabled => _autoConnectEnabled;
 
   bool get isClientMode => _isClientMode;
   bool get isClientConnected => _isClientConnected;
@@ -262,9 +257,8 @@ class ServerService extends ChangeNotifier {
         if (request.uri.path == '/ws') {
           final pin = (request.uri.queryParameters['pin'] ?? '')
               .trim()
-              .replaceAll('#', '')
               .replaceAll(RegExp(r'[^\d]'), '');
-          final cleanAuthPin = _authPin.trim();
+          final cleanAuthPin = _authPin.trim().replaceAll(RegExp(r'[^\d]'), '');
           if (pin != cleanAuthPin) {
             request.response
               ..statusCode = HttpStatus.forbidden
@@ -430,14 +424,6 @@ class ServerService extends ChangeNotifier {
                 if (!exists) {
                   _discoveredServers.add(server);
                   notifyListeners();
-
-                  if (_autoConnectEnabled &&
-                      !_isClientConnected &&
-                      server.ip == _lastConnectedIp &&
-                      _lastConnectedPin.isNotEmpty) {
-                    debugPrint('Auto-connecting to discovered host: ${server.ip}');
-                    connectToHost(server.ip, _wsPort, _lastConnectedPin);
-                  }
                 }
               }
             } catch (_) {}
@@ -460,25 +446,19 @@ class ServerService extends ChangeNotifier {
   // --- Client Mode: Connection ---
 
   Future<bool> connectToHost(String host, int port, String pin) async {
-    _reconnectTimer?.cancel();
     try {
       _clientError = '';
 
       final cleanHost = host.trim();
-      final cleanPin = pin.trim()
-          .replaceAll('#', '')
-          .replaceAll(RegExp(r'[^\d]'), '');
+      final cleanPin = pin.trim().replaceAll(RegExp(r'[^\d]'), '');
 
       final uri = 'ws://$cleanHost:$port/ws?pin=$cleanPin';
-      debugPrint('Connecting to host URI: ws://$cleanHost:$port/ws?pin=****');
-
       final socket = await WebSocket.connect(uri).timeout(const Duration(seconds: 5));
       _clientSocket = socket;
       _isClientConnected = true;
       _isClientPaired = false;
 
       _lastConnectedIp = cleanHost;
-      _lastConnectedPin = cleanPin;
       _saveClientSettings();
 
       notifyListeners();
@@ -495,9 +475,6 @@ class ServerService extends ChangeNotifier {
           _isClientPaired = false;
           notifyListeners();
           debugPrint('Disconnected from host');
-          if (_isClientMode && _autoConnectEnabled) {
-            _triggerAutoReconnect();
-          }
         },
         onError: (error) {
           _clientError = error.toString();
@@ -505,9 +482,6 @@ class ServerService extends ChangeNotifier {
           _isClientPaired = false;
           notifyListeners();
           debugPrint('Client socket error: $error');
-          if (_isClientMode && _autoConnectEnabled) {
-            _triggerAutoReconnect();
-          }
         },
       );
 
@@ -517,28 +491,11 @@ class ServerService extends ChangeNotifier {
       _isClientConnected = false;
       notifyListeners();
       debugPrint('Failed to connect to host: $e');
-      if (_isClientMode && _autoConnectEnabled) {
-        _triggerAutoReconnect();
-      }
       return false;
     }
   }
 
-  Timer? _reconnectTimer;
-  void _triggerAutoReconnect() {
-    if (!_isClientMode || !_autoConnectEnabled) return;
-    _reconnectTimer?.cancel();
-    _reconnectTimer = Timer(const Duration(seconds: 3), () {
-      if (_isClientMode && !_isClientConnected && _lastConnectedIp.isNotEmpty && _lastConnectedPin.isNotEmpty) {
-        debugPrint('Attempting auto-reconnection to $_lastConnectedIp...');
-        connectToHost(_lastConnectedIp, _wsPort, _lastConnectedPin);
-      }
-    });
-  }
-
   Future<void> disconnectFromHost() async {
-    _reconnectTimer?.cancel();
-    _reconnectTimer = null;
     _clientSocket?.close(WebSocketStatus.goingAway, 'Client disconnecting');
     _clientSocket = null;
     _isClientConnected = false;
@@ -558,8 +515,6 @@ class ServerService extends ChangeNotifier {
 
   void exitClientMode() {
     _isClientMode = false;
-    _reconnectTimer?.cancel();
-    _reconnectTimer = null;
     disconnectFromHost();
     stopDiscovery();
     loadDatabaseState();
@@ -573,8 +528,6 @@ class ServerService extends ChangeNotifier {
       if (await file.exists()) {
         final data = jsonDecode(await file.readAsString());
         _lastConnectedIp = data['lastIp'] ?? '';
-        _lastConnectedPin = data['lastPin'] ?? '';
-        _autoConnectEnabled = data['autoConnect'] ?? false;
         notifyListeners();
       }
     } catch (_) {}
@@ -586,22 +539,8 @@ class ServerService extends ChangeNotifier {
       final file = File('${directory.path}/client_sync_settings.json');
       await file.writeAsString(jsonEncode({
         'lastIp': _lastConnectedIp,
-        'lastPin': _lastConnectedPin,
-        'autoConnect': _autoConnectEnabled,
       }));
     } catch (_) {}
-  }
-
-  void setAutoConnect(bool value) {
-    _autoConnectEnabled = value;
-    _saveClientSettings();
-    notifyListeners();
-    if (value && !_isClientConnected && _lastConnectedIp.isNotEmpty && _lastConnectedPin.isNotEmpty) {
-      _triggerAutoReconnect();
-    } else if (!value) {
-      _reconnectTimer?.cancel();
-      _reconnectTimer = null;
-    }
   }
 
   // --- Client Mode: Incoming Message Handler ---
