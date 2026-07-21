@@ -581,14 +581,14 @@ class _CardColumnState extends State<CardColumn> {
               ),
             ),
           ).then((_) {
-            widget.onCardUpdated(newCard.id, newCard.content);
+            widget.onNavigateToPage(widget.selectedPage);
           });
         }
       },
       icon: Icon(icon, size: 16),
       label: Text(label),
       style: ElevatedButton.styleFrom(
-        backgroundColor: const Color(0xFF818CF8).withValues(alpha: 0.12),
+        backgroundColor: const Color(0xFF818CF8).withOpacity(0.12),
         foregroundColor: const Color(0xFF818CF8),
         elevation: 0,
       ),
@@ -703,9 +703,9 @@ class _CardColumnState extends State<CardColumn> {
                                 },
                               ),
                             ),
-                          ).then((_) {
-                            widget.onCardUpdated(card.id, card.content);
-                          });
+          ).then((_) {
+            widget.onNavigateToPage(widget.selectedPage);
+          });
                         },
                         behavior: HitTestBehavior.opaque,
                         child: Padding(
@@ -747,7 +747,7 @@ class _CardColumnState extends State<CardColumn> {
                               ),
                             ),
                           ).then((_) {
-                            widget.onCardUpdated(card.id, card.content);
+                            widget.onNavigateToPage(widget.selectedPage);
                           });
                         },
                         behavior: HitTestBehavior.opaque,
@@ -1056,7 +1056,7 @@ class _CardColumnState extends State<CardColumn> {
                         ),
                       ),
                     ).then((_) {
-                      widget.onCardUpdated(card.id, card.content);
+                      widget.onNavigateToPage(widget.selectedPage);
                     });
                   },
                 ),
@@ -1235,7 +1235,7 @@ class _CardColumnState extends State<CardColumn> {
               ),
             ),
           ).then((_) {
-            widget.onCardUpdated(newCard.id, newCard.content);
+            widget.onNavigateToPage(widget.selectedPage);
           });
         }
       },
