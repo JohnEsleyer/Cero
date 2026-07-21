@@ -643,11 +643,14 @@ class ServerService extends ChangeNotifier {
   // --- Client Mode: Cards ---
 
   Future<List<Card>> getCards(String pageId) async {
-    if (!_isClientMode || !_isClientPaired) {
+    if (!_isClientMode) {
       return await _dbService.getCards(pageId);
     }
     if (_clientCachedCards.containsKey(pageId)) {
       return _clientCachedCards[pageId]!;
+    }
+    if (!_isClientPaired) {
+      return [];
     }
     final completer = Completer<List<Card>>();
     _fetchCardsCompleters[pageId] = completer;

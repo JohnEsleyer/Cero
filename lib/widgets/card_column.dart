@@ -580,7 +580,9 @@ class _CardColumnState extends State<CardColumn> {
                 },
               ),
             ),
-          );
+          ).then((_) {
+            widget.onCardUpdated(newCard.id, newCard.content);
+          });
         }
       },
       icon: Icon(icon, size: 16),
@@ -701,7 +703,9 @@ class _CardColumnState extends State<CardColumn> {
                                 },
                               ),
                             ),
-                          );
+                          ).then((_) {
+                            widget.onCardUpdated(card.id, card.content);
+                          });
                         },
                         behavior: HitTestBehavior.opaque,
                         child: Padding(
@@ -742,7 +746,9 @@ class _CardColumnState extends State<CardColumn> {
                                 },
                               ),
                             ),
-                          );
+                          ).then((_) {
+                            widget.onCardUpdated(card.id, card.content);
+                          });
                         },
                         behavior: HitTestBehavior.opaque,
                         child: Padding(
@@ -1049,7 +1055,9 @@ class _CardColumnState extends State<CardColumn> {
                           },
                         ),
                       ),
-                    );
+                    ).then((_) {
+                      widget.onCardUpdated(card.id, card.content);
+                    });
                   },
                 ),
               ListTile(
@@ -1226,7 +1234,9 @@ class _CardColumnState extends State<CardColumn> {
                 },
               ),
             ),
-          );
+          ).then((_) {
+            widget.onCardUpdated(newCard.id, newCard.content);
+          });
         }
       },
     );
