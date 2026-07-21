@@ -103,6 +103,9 @@ class _MainJournalScreenState extends State<MainJournalScreen> {
     _loadTally();
     _loadRecentlyOpened();
     _scratchpadController.addListener(_saveScratchpadDebounced);
+
+    _clientIpController.text = _serverService.lastConnectedIp;
+    _clientPinController.text = _serverService.lastConnectedPin;
   }
 
   Future<void> _loadRecentlyOpened() async {
@@ -155,6 +158,13 @@ class _MainJournalScreenState extends State<MainJournalScreen> {
   void _onServerStateChanged() {
     if (mounted) {
       setState(() {
+        if (_clientIpController.text.isEmpty && _serverService.lastConnectedIp.isNotEmpty) {
+          _clientIpController.text = _serverService.lastConnectedIp;
+        }
+        if (_clientPinController.text.isEmpty && _serverService.lastConnectedPin.isNotEmpty) {
+          _clientPinController.text = _serverService.lastConnectedPin;
+        }
+
         if (_selectedPage != null) {
           final updatedPage = _serverService.pages.firstWhere(
             (p) => p.id == _selectedPage!.id,
@@ -1788,6 +1798,24 @@ class _MainJournalScreenState extends State<MainJournalScreen> {
             style: TextStyle(fontSize: 11, color: Colors.grey),
           ),
           const SizedBox(height: 12),
+          // Auto-connect Toggle Switch
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text(
+                'Auto-detect & connect',
+                style: TextStyle(fontSize: 12, color: Colors.white, fontWeight: FontWeight.bold),
+              ),
+              Switch.adaptive(
+                value: _serverService.autoConnectEnabled,
+                activeColor: const Color(0xFF818CF8),
+                onChanged: (val) {
+                  _serverService.setAutoConnect(val);
+                },
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
           // Discovered servers
           if (!isConnected && discoveredServers.isNotEmpty) ...[
             const Text(
@@ -1807,7 +1835,7 @@ class _MainJournalScreenState extends State<MainJournalScreen> {
                       visualDensity: VisualDensity.compact,
                       title: Text(
                         server.deviceName,
-                        style: const TextStyle(fontSize: 12),
+                        style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
                       ),
                       subtitle: Text(
                         server.ip,
@@ -1831,12 +1859,13 @@ class _MainJournalScreenState extends State<MainJournalScreen> {
                 child: Padding(
                   padding: EdgeInsets.all(8.0),
                   child: Text(
-                    'No hosts found. Make sure the host server is running.',
-                    style: TextStyle(fontSize: 11, color: Colors.grey),
+                    'No hosts found. Scanning network for hosts...',
+                    style: TextStyle(fontSize: 11, color: Colors.grey, fontStyle: FontStyle.italic),
                     textAlign: TextAlign.center,
                   ),
                 ),
               ),
+            const SizedBox(height: 8),
             TextField(
               controller: _clientIpController,
               style: const TextStyle(fontSize: 12, color: Colors.white),

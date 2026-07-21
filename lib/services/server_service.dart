@@ -4,6 +4,7 @@ import 'dart:io';
 import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
+import 'package:path_provider/path_provider.dart';
 import '../models/page_model.dart';
 import '../models/card_model.dart';
 import 'database_service.dart';
@@ -104,6 +105,16 @@ class ServerService extends ChangeNotifier {
   final List<DiscoveredServer> _discoveredServers = [];
   RawDatagramSocket? _udpDiscoverySocket;
 
+  // --- Persistent Client Settings ---
+
+  String _lastConnectedIp = '';
+  String _lastConnectedPin = '';
+  bool _autoConnectEnabled = false;
+
+  String get lastConnectedIp => _lastConnectedIp;
+  String get lastConnectedPin => _lastConnectedPin;
+  bool get autoConnectEnabled => _autoConnectEnabled;
+
   bool get isClientMode => _isClientMode;
   bool get isClientConnected => _isClientConnected;
   bool get isClientPaired => _isClientPaired;
@@ -148,6 +159,7 @@ class ServerService extends ChangeNotifier {
 
   Future<void> init() async {
     startSpeedTracking();
+    await _loadClientSettings();
     await _dbService.openDefaultWorkspace();
     await updateLocalIp();
     await loadDatabaseState();
@@ -386,7 +398,20 @@ class ServerService extends ChangeNotifier {
   Future<void> startDiscovery() async {
     if (_udpDiscoverySocket != null) return;
     try {
-      _udpDiscoverySocket = await RawDatagramSocket.bind(InternetAddress.anyIPv4, 0);
+      try {
+        _udpDiscoverySocket = await RawDatagramSocket.bind(
+          InternetAddress.anyIPv4,
+          _udpPort,
+          reuseAddress: true,
+          reusePort: true,
+        );
+      } catch (_) {
+        _udpDiscoverySocket = await RawDatagramSocket.bind(
+          InternetAddress.anyIPv4,
+          _udpPort,
+          reuseAddress: true,
+        );
+      }
       _udpDiscoverySocket!.broadcastEnabled = true;
       _udpDiscoverySocket!.joinMulticast(InternetAddress(_multicastAddr));
       _udpDiscoverySocket!.listen((event) {
@@ -401,13 +426,21 @@ class ServerService extends ChangeNotifier {
                 if (!exists) {
                   _discoveredServers.add(server);
                   notifyListeners();
+
+                  if (_autoConnectEnabled &&
+                      !_isClientConnected &&
+                      server.ip == _lastConnectedIp &&
+                      _lastConnectedPin.isNotEmpty) {
+                    debugPrint('Auto-connecting to discovered host: ${server.ip}');
+                    connectToHost(server.ip, _wsPort, _lastConnectedPin);
+                  }
                 }
               }
             } catch (_) {}
           }
         }
       });
-      debugPrint('Discovery socket listening for beacons');
+      debugPrint('Discovery socket listening on port $_udpPort for multicast beacons');
     } catch (e) {
       debugPrint('Error starting discovery: $e');
     }
@@ -423,13 +456,19 @@ class ServerService extends ChangeNotifier {
   // --- Client Mode: Connection ---
 
   Future<bool> connectToHost(String host, int port, String pin) async {
+    _reconnectTimer?.cancel();
     try {
       _clientError = '';
       final uri = 'ws://$host:$port/ws?pin=$pin';
-      final socket = await WebSocket.connect(uri);
+      final socket = await WebSocket.connect(uri).timeout(const Duration(seconds: 5));
       _clientSocket = socket;
       _isClientConnected = true;
       _isClientPaired = false;
+
+      _lastConnectedIp = host;
+      _lastConnectedPin = pin;
+      _saveClientSettings();
+
       notifyListeners();
 
       socket.listen(
@@ -444,6 +483,9 @@ class ServerService extends ChangeNotifier {
           _isClientPaired = false;
           notifyListeners();
           debugPrint('Disconnected from host');
+          if (_isClientMode && _autoConnectEnabled) {
+            _triggerAutoReconnect();
+          }
         },
         onError: (error) {
           _clientError = error.toString();
@@ -451,6 +493,9 @@ class ServerService extends ChangeNotifier {
           _isClientPaired = false;
           notifyListeners();
           debugPrint('Client socket error: $error');
+          if (_isClientMode && _autoConnectEnabled) {
+            _triggerAutoReconnect();
+          }
         },
       );
 
@@ -460,11 +505,28 @@ class ServerService extends ChangeNotifier {
       _isClientConnected = false;
       notifyListeners();
       debugPrint('Failed to connect to host: $e');
+      if (_isClientMode && _autoConnectEnabled) {
+        _triggerAutoReconnect();
+      }
       return false;
     }
   }
 
+  Timer? _reconnectTimer;
+  void _triggerAutoReconnect() {
+    if (!_isClientMode || !_autoConnectEnabled) return;
+    _reconnectTimer?.cancel();
+    _reconnectTimer = Timer(const Duration(seconds: 3), () {
+      if (_isClientMode && !_isClientConnected && _lastConnectedIp.isNotEmpty && _lastConnectedPin.isNotEmpty) {
+        debugPrint('Attempting auto-reconnection to $_lastConnectedIp...');
+        connectToHost(_lastConnectedIp, _wsPort, _lastConnectedPin);
+      }
+    });
+  }
+
   Future<void> disconnectFromHost() async {
+    _reconnectTimer?.cancel();
+    _reconnectTimer = null;
     _clientSocket?.close(WebSocketStatus.goingAway, 'Client disconnecting');
     _clientSocket = null;
     _isClientConnected = false;
@@ -484,10 +546,50 @@ class ServerService extends ChangeNotifier {
 
   void exitClientMode() {
     _isClientMode = false;
+    _reconnectTimer?.cancel();
+    _reconnectTimer = null;
     disconnectFromHost();
     stopDiscovery();
     loadDatabaseState();
     notifyListeners();
+  }
+
+  Future<void> _loadClientSettings() async {
+    try {
+      final directory = await getApplicationDocumentsDirectory();
+      final file = File('${directory.path}/client_sync_settings.json');
+      if (await file.exists()) {
+        final data = jsonDecode(await file.readAsString());
+        _lastConnectedIp = data['lastIp'] ?? '';
+        _lastConnectedPin = data['lastPin'] ?? '';
+        _autoConnectEnabled = data['autoConnect'] ?? false;
+        notifyListeners();
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _saveClientSettings() async {
+    try {
+      final directory = await getApplicationDocumentsDirectory();
+      final file = File('${directory.path}/client_sync_settings.json');
+      await file.writeAsString(jsonEncode({
+        'lastIp': _lastConnectedIp,
+        'lastPin': _lastConnectedPin,
+        'autoConnect': _autoConnectEnabled,
+      }));
+    } catch (_) {}
+  }
+
+  void setAutoConnect(bool value) {
+    _autoConnectEnabled = value;
+    _saveClientSettings();
+    notifyListeners();
+    if (value && !_isClientConnected && _lastConnectedIp.isNotEmpty && _lastConnectedPin.isNotEmpty) {
+      _triggerAutoReconnect();
+    } else if (!value) {
+      _reconnectTimer?.cancel();
+      _reconnectTimer = null;
+    }
   }
 
   // --- Client Mode: Incoming Message Handler ---
@@ -930,6 +1032,9 @@ class ServerService extends ChangeNotifier {
       updatedAt: DateTime.now(),
     );
     if (_isClientMode && _isClientPaired) {
+      _pages.add(newPage);
+      notifyListeners();
+
       final payload = jsonEncode({'type': 'add', 'item': newPage.toMap()});
       _clientSocket?.add(payload);
       totalBytesSent += utf8.encode(payload).length;
@@ -959,6 +1064,17 @@ class ServerService extends ChangeNotifier {
     required String emoji,
   }) async {
     if (_isClientMode && _isClientPaired) {
+      final index = _pages.indexWhere((p) => p.id == id);
+      if (index != -1) {
+        _pages[index] = _pages[index].copyWith(
+          title: title,
+          emoji: emoji,
+          updatedAt: DateTime.now(),
+          revision: _pages[index].revision + 1,
+        );
+        notifyListeners();
+      }
+
       final payload = jsonEncode({
         'type': 'update',
         'item': {'id': id, 'title': title, 'emoji': emoji},
@@ -1009,6 +1125,9 @@ class ServerService extends ChangeNotifier {
 
   Future<void> deletePage(String id) async {
     if (_isClientMode && _isClientPaired) {
+      _pages.removeWhere((p) => p.id == id);
+      notifyListeners();
+
       final payload = jsonEncode({'type': 'delete', 'id': id});
       _clientSocket?.add(payload);
       totalBytesSent += utf8.encode(payload).length;
@@ -1051,6 +1170,15 @@ class ServerService extends ChangeNotifier {
 
   Future<void> movePage(String id, String? newParentId) async {
     if (_isClientMode && _isClientPaired) {
+      final index = _pages.indexWhere((p) => p.id == id);
+      if (index != -1) {
+        _pages[index] = _pages[index].copyWith(
+          parentId: newParentId,
+          updatedAt: DateTime.now(),
+        );
+        notifyListeners();
+      }
+
       final payload = jsonEncode({
         'type': 'move',
         'id': id,
@@ -1114,6 +1242,20 @@ class ServerService extends ChangeNotifier {
         createdAt: DateTime.now(),
         updatedAt: DateTime.now(),
       );
+
+      final existing = _clientCachedCards[pageId] ?? [];
+      final list = List<Card>.from(existing);
+      if (insertAt != null && insertAt >= 0 && insertAt <= list.length) {
+        list.insert(insertAt, card);
+      } else {
+        list.add(card);
+      }
+      for (int i = 0; i < list.length; i++) {
+        list[i] = list[i].copyWith(sortOrder: i);
+      }
+      _clientCachedCards[pageId] = list;
+      notifyListeners();
+
       final payload = jsonEncode({
         'type': 'add_card', 
         'item': card.toMap(),
@@ -1166,6 +1308,29 @@ class ServerService extends ChangeNotifier {
     String? pageId,
   }) async {
     if (_isClientMode && _isClientPaired) {
+      for (final pid in _clientCachedCards.keys) {
+        final idx = _clientCachedCards[pid]!.indexWhere((c) => c.id == id);
+        if (idx != -1) {
+          final currentCard = _clientCachedCards[pid]![idx];
+          final updatedCard = currentCard.copyWith(
+            content: content ?? currentCard.content,
+            comment: comment ?? currentCard.comment,
+            pageId: pageId ?? currentCard.pageId,
+            updatedAt: DateTime.now(),
+          );
+
+          if (pageId != null && pageId != pid) {
+            _clientCachedCards[pid]!.removeAt(idx);
+            _clientCachedCards[pageId] ??= [];
+            _clientCachedCards[pageId]!.add(updatedCard);
+          } else {
+            _clientCachedCards[pid]![idx] = updatedCard;
+          }
+          break;
+        }
+      }
+      notifyListeners();
+
       final Map<String, dynamic> updateItem = {'id': id};
       if (content != null) updateItem['content'] = content;
       if (comment != null) updateItem['comment'] = comment;
@@ -1209,6 +1374,15 @@ class ServerService extends ChangeNotifier {
 
   Future<void> deleteCard(String cardId) async {
     if (_isClientMode && _isClientPaired) {
+      for (final pid in _clientCachedCards.keys) {
+        final idx = _clientCachedCards[pid]!.indexWhere((c) => c.id == cardId);
+        if (idx != -1) {
+          _clientCachedCards[pid]!.removeAt(idx);
+          break;
+        }
+      }
+      notifyListeners();
+
       final payload = jsonEncode({'type': 'delete_card', 'id': cardId});
       _clientSocket?.add(payload);
       totalBytesSent += utf8.encode(payload).length;
@@ -1220,10 +1394,29 @@ class ServerService extends ChangeNotifier {
   Future<void> reorderCards({required List<String> cardIds}) async {
     if (cardIds.isEmpty) return;
     if (_isClientMode && _isClientPaired) {
+      String? foundPageId;
+      for (final pid in _clientCachedCards.keys) {
+        if (_clientCachedCards[pid]!.any((c) => c.id == cardIds.first)) {
+          foundPageId = pid;
+          break;
+        }
+      }
+
+      if (foundPageId != null) {
+        final existing = _clientCachedCards[foundPageId]!;
+        final reordered = <Card>[];
+        for (final cid in cardIds) {
+          final match = existing.firstWhere((c) => c.id == cid);
+          reordered.add(match.copyWith(sortOrder: reordered.length));
+        }
+        _clientCachedCards[foundPageId] = reordered;
+        notifyListeners();
+      }
+
       final card = await _dbService.getCard(cardIds.first);
       final payload = jsonEncode({
         'type': 'reorder_cards',
-        'page_id': card?.pageId ?? '',
+        'page_id': card?.pageId ?? foundPageId ?? '',
         'order': cardIds,
       });
       _clientSocket?.add(payload);
