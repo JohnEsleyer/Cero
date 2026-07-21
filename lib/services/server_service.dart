@@ -260,13 +260,17 @@ class ServerService extends ChangeNotifier {
 
       _httpServer!.listen((HttpRequest request) {
         if (request.uri.path == '/ws') {
-          final pin = request.uri.queryParameters['pin'] ?? '';
-          if (pin != _authPin) {
+          final pin = (request.uri.queryParameters['pin'] ?? '')
+              .trim()
+              .replaceAll('#', '')
+              .replaceAll(RegExp(r'[^\d]'), '');
+          final cleanAuthPin = _authPin.trim();
+          if (pin != cleanAuthPin) {
             request.response
               ..statusCode = HttpStatus.forbidden
               ..write('Invalid auth PIN')
               ..close();
-            debugPrint('Rejected connection: invalid PIN ($pin)');
+            debugPrint('Rejected connection: invalid PIN "$pin", expected: "$cleanAuthPin"');
             return;
           }
 
@@ -459,14 +463,22 @@ class ServerService extends ChangeNotifier {
     _reconnectTimer?.cancel();
     try {
       _clientError = '';
-      final uri = 'ws://$host:$port/ws?pin=$pin';
+
+      final cleanHost = host.trim();
+      final cleanPin = pin.trim()
+          .replaceAll('#', '')
+          .replaceAll(RegExp(r'[^\d]'), '');
+
+      final uri = 'ws://$cleanHost:$port/ws?pin=$cleanPin';
+      debugPrint('Connecting to host URI: ws://$cleanHost:$port/ws?pin=****');
+
       final socket = await WebSocket.connect(uri).timeout(const Duration(seconds: 5));
       _clientSocket = socket;
       _isClientConnected = true;
       _isClientPaired = false;
 
-      _lastConnectedIp = host;
-      _lastConnectedPin = pin;
+      _lastConnectedIp = cleanHost;
+      _lastConnectedPin = cleanPin;
       _saveClientSettings();
 
       notifyListeners();
