@@ -361,6 +361,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   _buildSectionHeader('DATABASE INFORMATION'),
                   _buildPathCard(),
                   const SizedBox(height: 24),
+                  _buildSectionHeader('NETWORK & SYNC SERVER'),
+                  _buildNetworkCard(),
+                  const SizedBox(height: 24),
                   _buildSectionHeader('USER PREFERENCES'),
                   _buildPreferencesCard(),
                   const SizedBox(height: 24),
@@ -423,6 +426,105 @@ class _SettingsScreenState extends State<SettingsScreen> {
     } catch (_) {
       return const SizedBox();
     }
+  }
+
+  Widget _buildNetworkCard() {
+    final isRunning = _serverService.isRunning;
+    final localIp = _serverService.localIp;
+    final port = _serverService.wsPort;
+    final connectedClients = _serverService.clients.length;
+    final pendingConnections = _serverService.pendingConnections.length;
+
+    return Card(
+      color: const Color(0xFF202020),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(10),
+        side: const BorderSide(color: Color(0xFF2C2C2C)),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Row(
+              children: [
+                Icon(Icons.wifi, color: Color(0xFF818CF8), size: 18),
+                SizedBox(width: 8),
+                Text(
+                  'Server Status',
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Icon(
+                  isRunning ? Icons.check_circle : Icons.cancel,
+                  size: 14,
+                  color: isRunning ? Colors.greenAccent : Colors.redAccent,
+                ),
+                const SizedBox(width: 6),
+                Text(
+                  isRunning ? 'Server is running' : 'Server is stopped',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: isRunning ? Colors.greenAccent : Colors.redAccent,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            _buildNetworkDetailRow('Local IP', localIp),
+            _buildNetworkDetailRow('WebSocket Port', port.toString()),
+            _buildNetworkDetailRow('Connected Clients', connectedClients.toString()),
+            _buildNetworkDetailRow('Pending Approvals', pendingConnections.toString()),
+            if (isRunning) ...[
+              const SizedBox(height: 12),
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF0D2818),
+                  borderRadius: BorderRadius.circular(6),
+                  border: Border.all(color: Colors.green.withOpacity(0.2)),
+                ),
+                child: const Text(
+                  'To connect from another device, ensure both are on the same Wi-Fi network and that AP/Client Isolation is disabled in your router settings.',
+                  style: TextStyle(fontSize: 10, color: Color(0xFF86EFAC), height: 1.4),
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildNetworkDetailRow(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 3),
+      child: Row(
+        children: [
+          SizedBox(
+            width: 130,
+            child: Text(
+              label,
+              style: const TextStyle(fontSize: 11, color: Colors.grey),
+            ),
+          ),
+          Expanded(
+            child: Text(
+              value,
+              style: const TextStyle(
+                fontSize: 12,
+                color: Color(0xFFCBD5E1),
+                fontFamily: 'monospace',
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   Widget _buildPreferencesCard() {

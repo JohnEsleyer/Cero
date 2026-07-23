@@ -452,8 +452,26 @@ class ServerService extends ChangeNotifier {
       final cleanHost = host.trim();
       final cleanPin = pin.trim().replaceAll(RegExp(r'[^\d]'), '');
 
+      try {
+        await Socket.connect(cleanHost, port)
+            .timeout(const Duration(seconds: 3));
+      } on SocketException catch (e) {
+        _clientError =
+            'Cannot reach $cleanHost:$port — the device may be on a different network, client isolation may be enabled on the router, or the server app is not running.\n  $e';
+        notifyListeners();
+        return false;
+      } on TimeoutException {
+        _clientError =
+            'Connection to $cleanHost:$port timed out — the device may be on a different network or not reachable.\n'
+            '  • Verify both devices are on the same Wi-Fi network\n'
+            '  • Disable AP/client isolation on your router\n'
+            '  • Disable VPNs and ad-blockers on both devices';
+        notifyListeners();
+        return false;
+      }
+
       final uri = 'ws://$cleanHost:$port/ws?pin=$cleanPin';
-      final socket = await WebSocket.connect(uri).timeout(const Duration(seconds: 5));
+      final socket = await WebSocket.connect(uri).timeout(const Duration(seconds: 10));
       _clientSocket = socket;
       _isClientConnected = true;
       _isClientPaired = false;
@@ -486,8 +504,22 @@ class ServerService extends ChangeNotifier {
       );
 
       return true;
+    } on TimeoutException {
+      _clientError =
+          'WebSocket handshake timed out — the server did not respond in time.\n'
+          '  • Verify the PIN is correct\n'
+          '  • Ensure no firewall is blocking port 9090';
+      _isClientConnected = false;
+      notifyListeners();
+      return false;
+    } on WebSocketException catch (e) {
+      _clientError = 'WebSocket rejected: $e';
+      _isClientConnected = false;
+      notifyListeners();
+      debugPrint('WebSocket exception: $e');
+      return false;
     } catch (e) {
-      _clientError = e.toString();
+      _clientError = 'Connection failed: $e';
       _isClientConnected = false;
       notifyListeners();
       debugPrint('Failed to connect to host: $e');

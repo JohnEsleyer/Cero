@@ -1907,6 +1907,26 @@ class _MainJournalScreenState extends State<MainJournalScreen> {
             ),
             const Divider(height: 16, color: Color(0xFF2C2C2C)),
           ],
+          if (_serverService.isRunning)
+            Container(
+              margin: const EdgeInsets.only(bottom: 12),
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+              decoration: BoxDecoration(
+                color: const Color(0xFF0D2818),
+                borderRadius: BorderRadius.circular(6),
+                border: Border.all(color: Colors.green.withOpacity(0.3)),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.wifi, size: 14, color: Colors.greenAccent),
+                  const SizedBox(width: 8),
+                  Text(
+                    'This device is hosting on ${_serverService.localIp}:${_serverService.wsPort}',
+                    style: const TextStyle(fontSize: 10, color: Color(0xFF86EFAC), fontFamily: 'monospace'),
+                  ),
+                ],
+              ),
+            ),
           // Connection form
           if (!isConnected) ...[
             if (discoveredServers.isEmpty)
@@ -1964,7 +1984,19 @@ class _MainJournalScreenState extends State<MainJournalScreen> {
                       final ip = _clientIpController.text.trim();
                       final pin = _clientPinController.text.trim();
                       if (ip.isEmpty || pin.isEmpty) return;
-                      await _serverService.connectToHost(ip, _serverService.wsPort, pin);
+                      final success = await _serverService.connectToHost(ip, _serverService.wsPort, pin);
+                      if (!success && mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text(
+                              _serverService.clientError,
+                              style: const TextStyle(fontSize: 12),
+                            ),
+                            backgroundColor: Colors.redAccent,
+                            duration: const Duration(seconds: 6),
+                          ),
+                        );
+                      }
                       setState(() {});
                     },
                     style: ElevatedButton.styleFrom(
