@@ -155,7 +155,7 @@ class _CardColumnState extends State<CardColumn> {
   int _currentBlockIndex = 0;
   bool _autoJumpToLastCard = false;
   bool _preferencesLoaded = false;
-  bool _defaultToBlockView = false;
+  bool _shouldJumpToLastCardOnLoad = false;
   final TextEditingController _blockNumberController = TextEditingController();
   int? _pendingBlockIndex;
 
@@ -170,16 +170,13 @@ class _CardColumnState extends State<CardColumn> {
     try {
       final directory = await getApplicationDocumentsDirectory();
       final file = File('${directory.path}/preferences.json');
-      bool blockView = false;
       bool autoJump = false;
       if (await file.exists()) {
         final content = await file.readAsString();
         final Map<String, dynamic> data = jsonDecode(content);
-        blockView = data['default_to_block_view'] ?? false;
         autoJump = data['auto_jump_to_last_card'] ?? false;
       }
 
-      _defaultToBlockView = blockView;
       _autoJumpToLastCard = autoJump;
 
       await _loadPageSpecificViewMode();
@@ -203,7 +200,7 @@ class _CardColumnState extends State<CardColumn> {
     try {
       final directory = await getApplicationDocumentsDirectory();
       final file = File('${directory.path}/page_views.json');
-      bool pageBlockView = _defaultToBlockView;
+      bool pageBlockView = false;
       if (await file.exists()) {
         final content = await file.readAsString();
         final Map<String, dynamic> data = jsonDecode(content);
@@ -214,13 +211,13 @@ class _CardColumnState extends State<CardColumn> {
       if (mounted) {
         setState(() {
           _isPaginatedView = pageBlockView;
-          if (_isPaginatedView && widget.cards.isNotEmpty) {
+          if (_isPaginatedView) {
             if (_autoJumpToLastCard) {
-              _currentBlockIndex = widget.cards.length - 1;
+              _shouldJumpToLastCardOnLoad = true;
             } else {
               _currentBlockIndex = 0;
+              _blockNumberController.text = '1';
             }
-            _blockNumberController.text = (_currentBlockIndex + 1).toString();
           } else {
             _blockNumberController.text = '1';
           }
@@ -247,18 +244,24 @@ class _CardColumnState extends State<CardColumn> {
   void didUpdateWidget(CardColumn oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.selectedPage.id != widget.selectedPage.id) {
-      _loadPageSpecificViewMode();
       _pendingBlockIndex = null;
+      _loadPageSpecificViewMode();
     }
-    if (_pendingBlockIndex != null) {
-      if (_pendingBlockIndex! >= 0 && _pendingBlockIndex! < widget.cards.length) {
-        _currentBlockIndex = _pendingBlockIndex!;
+    if (widget.cards.isNotEmpty) {
+      if (_shouldJumpToLastCardOnLoad) {
+        _shouldJumpToLastCardOnLoad = false;
+        _currentBlockIndex = widget.cards.length - 1;
         _blockNumberController.text = (_currentBlockIndex + 1).toString();
-        _pendingBlockIndex = null;
+      } else if (_pendingBlockIndex != null) {
+        if (_pendingBlockIndex! >= 0 && _pendingBlockIndex! < widget.cards.length) {
+          _currentBlockIndex = _pendingBlockIndex!;
+          _blockNumberController.text = (_currentBlockIndex + 1).toString();
+          _pendingBlockIndex = null;
+        }
       }
-    }
-    if (_currentBlockIndex >= widget.cards.length) {
-      _currentBlockIndex = widget.cards.isEmpty ? 0 : widget.cards.length - 1;
+      if (_currentBlockIndex >= widget.cards.length) {
+        _currentBlockIndex = widget.cards.length - 1;
+      }
       _blockNumberController.text = (_currentBlockIndex + 1).toString();
     }
   }
